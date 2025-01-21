@@ -275,9 +275,7 @@ IF( APPLE )
     list(APPEND client_SRCS cocoainitializer_mac.mm)
     list(APPEND client_SRCS systray_mac_common.mm)
 
-    if (CMAKE_OSX_DEPLOYMENT_TARGET VERSION_GREATER_EQUAL 10.14)
-        list(APPEND client_SRCS systray_mac_usernotifications.mm)
-    endif()
+    list(APPEND client_SRCS systray_mac_usernotifications.mm)
 
     if (BUILD_FILE_PROVIDER_MODULE)
         list(APPEND client_SRCS
@@ -317,6 +315,10 @@ IF( APPLE )
             macOS/progressobserver.h
             macOS/progressobserver.m)
     endif()
+
+    list(APPEND client_SRCS foregroundbackground_interface.h)
+    list(APPEND client_SRCS foregroundbackground_mac.mm)
+    list(APPEND client_SRCS foregroundbackground_cocoa.mm)
 
     if(SPARKLE_FOUND AND BUILD_UPDATER)
         # Define this, we need to check in updater.cpp
@@ -706,7 +708,7 @@ endif()
 if (APPLE)
     if (BUILD_FILE_PROVIDER_MODULE)
         target_link_libraries(nextcloudCore PUBLIC "-framework UserNotifications -framework FileProvider")
-    elseif(CMAKE_OSX_DEPLOYMENT_TARGET VERSION_GREATER_EQUAL 10.14)
+    else()
         target_link_libraries(nextcloudCore PUBLIC "-framework UserNotifications")
     endif()
 endif()
@@ -727,6 +729,9 @@ install(TARGETS nextcloud
         BUNDLE  DESTINATION "."
  )
 
+if (WIN32)
+    install(FILES $<TARGET_PDB_FILE:nextcloud> DESTINATION bin OPTIONAL)
+endif()
 
 # FIXME: The following lines are dup in src/gui and src/cmd because it needs to be done after both are installed
 #FIXME: find a nice solution to make the second if(BUILD_OWNCLOUD_OSX_BUNDLE) unnecessary

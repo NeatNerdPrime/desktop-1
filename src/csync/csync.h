@@ -32,22 +32,24 @@
 #ifndef _CSYNC_H
 #define _CSYNC_H
 
-#include "std/c_private.h"
-#include "ocsynclib.h"
-
-#include <sys/stat.h>
-
-#include <cstdint>
-#include <sys/types.h>
-#include <config_csync.h>
-#include <functional>
-#include <memory>
 #include <QByteArray>
 #include <QVariant>
+#include <QLoggingCategory>
 
+#include <cstdint>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <functional>
+#include <memory>
+
+#include "ocsynclib.h"
+#include "config_csync.h"
+#include "std/c_private.h"
 #include "common/remotepermissions.h"
 
 namespace OCC {
+Q_DECLARE_LOGGING_CATEGORY(lcPermanentLog)
+
 class SyncJournalFileRecord;
 
 namespace EncryptionStatusEnums {
@@ -215,6 +217,7 @@ struct OCSYNC_EXPORT csync_file_stat_s {
   bool is_hidden BITFIELD(1); // Not saved in the DB, only used during discovery for local files.
   bool isE2eEncrypted BITFIELD(1);
   bool is_metadata_missing BITFIELD(1); // Indicates the file has missing metadata, f.ex. the file is not a placeholder in case of vfs.
+  bool isPermissionsInvalid BITFIELD(1);
 
   QByteArray path;
   QByteArray rename_path;
@@ -242,6 +245,7 @@ struct OCSYNC_EXPORT csync_file_stat_s {
     , is_hidden(false)
     , isE2eEncrypted(false)
     , is_metadata_missing(false)
+    , isPermissionsInvalid(false)
   { }
 };
 

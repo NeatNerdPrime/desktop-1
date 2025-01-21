@@ -22,16 +22,25 @@ import Style
 TextEdit {
     id: root
 
-    readonly property color accentColor: Style.ncBlue
+    readonly property color accentColor: palette.highlight
     readonly property color secondaryColor: palette.dark
     readonly property alias submitButton: submitButton
 
     clip: true
-    color: Style.ncTextColor
     textMargin: Style.smallSpacing
     wrapMode: TextEdit.Wrap
     selectByMouse: true
     height: Math.max(Style.talkReplyTextFieldPreferredHeight, contentHeight)
+
+    Rectangle {
+        id: textFieldBorder
+        anchors.fill: parent
+        radius: Style.trayWindowRadius
+        border.width: Style.normalBorderWidth
+        border.color: root.activeFocus ? root.accentColor : root.secondaryColor
+        color: palette.base
+        z: -1
+    }
 
     Button {
         id: submitButton

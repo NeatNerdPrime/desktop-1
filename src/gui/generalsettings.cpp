@@ -31,6 +31,11 @@
 #endif
 #endif
 
+#ifdef BUILD_FILE_PROVIDER_MODULE
+#include "macOS/fileprovider.h"
+#include "macOS/fileprovidersettingscontroller.h"
+#endif
+
 #include "ignorelisteditor.h"
 #include "common/utility.h"
 #include "logger.h"
@@ -124,7 +129,8 @@ bool createDebugArchive(const QString &filename)
         QMessageBox::critical(
             nullptr,
             QObject::tr("Failed to create debug archive"),
-            QObject::tr("Could not create debug archive in selected location!")
+            QObject::tr("Could not create debug archive in selected location!"),
+            QMessageBox::Ok
         );
         return false;
     }
@@ -137,6 +143,27 @@ bool createDebugArchive(const QString &filename)
     for (const auto &entry : entries) {
         zip.addLocalFile(entry.localFilename, entry.zipFilename);
     }
+
+#ifdef BUILD_FILE_PROVIDER_MODULE
+    const auto fileProvider = OCC::Mac::FileProvider::instance();
+    if (fileProvider && fileProvider->fileProviderAvailable()) {
+        const auto tempDir = QTemporaryDir();
+        const auto xpc = fileProvider->xpc();
+        const auto vfsAccounts = OCC::Mac::FileProviderSettingsController::instance()->vfsEnabledAccounts();
+        for (const auto &accountUserIdAtHost : vfsAccounts) {
+            const auto accountState = OCC::AccountManager::instance()->accountFromUserId(accountUserIdAtHost);
+            if (!accountState) {
+                qWarning() << "Could not find account for" << accountUserIdAtHost;
+                continue;
+            }
+            const auto account = accountState->account();
+            const auto vfsLogFilename = QStringLiteral("macOS_vfs_%1.log").arg(account->davUser());
+            const auto vfsLogPath = tempDir.filePath(vfsLogFilename);
+            xpc->createDebugArchiveForExtension(accountUserIdAtHost, vfsLogPath);
+            zip.addLocalFile(vfsLogPath, vfsLogFilename);
+        }
+    }
+#endif
 
     const auto clientParameters = QCoreApplication::arguments().join(' ').toUtf8();
     zip.prepareWriting("__nextcloud_client_parameters.txt", {}, {}, clientParameters.size());
@@ -163,6 +190,10 @@ GeneralSettings::GeneralSettings(QWidget *parent)
     connect(_ui->serverNotificationsCheckBox, &QAbstractButton::toggled,
         this, &GeneralSettings::slotToggleOptionalServerNotifications);
     _ui->serverNotificationsCheckBox->setToolTip(tr("Server notifications that require attention."));
+
+    connect(_ui->chatNotificationsCheckBox, &QAbstractButton::toggled,
+            this, &GeneralSettings::slotToggleChatNotifications);
+    _ui->chatNotificationsCheckBox->setToolTip(tr("Show chat notification dialogs."));
 
     connect(_ui->callNotificationsCheckBox, &QAbstractButton::toggled,
         this, &GeneralSettings::slotToggleCallNotifications);
@@ -244,6 +275,10 @@ GeneralSettings::GeneralSettings(QWidget *parent)
     // accountAdded means the wizard was finished and the wizard might change some options.
     connect(AccountManager::instance(), &AccountManager::accountAdded, this, &GeneralSettings::loadMiscSettings);
 
+#if defined(BUILD_UPDATER)
+    loadUpdateChannelsList();
+#endif
+
     customizeStyle();
 }
 
@@ -267,7 +302,9 @@ void GeneralSettings::loadMiscSettings()
 
     _ui->monoIconsCheckBox->setChecked(cfgFile.monoIcons());
     _ui->serverNotificationsCheckBox->setChecked(cfgFile.optionalServerNotifications());
-    _ui->callNotificationsCheckBox->setEnabled(_ui->serverNotificationsCheckBox->isEnabled());
+    _ui->chatNotificationsCheckBox->setEnabled(cfgFile.optionalServerNotifications());
+    _ui->chatNotificationsCheckBox->setChecked(cfgFile.showChatNotifications());
+    _ui->callNotificationsCheckBox->setEnabled(cfgFile.optionalServerNotifications());
     _ui->callNotificationsCheckBox->setChecked(cfgFile.showCallNotifications());
     _ui->showInExplorerNavigationPaneCheckBox->setChecked(cfgFile.showInExplorerNavigationPane());
     _ui->crashreporterCheckBox->setChecked(cfgFile.crashReporter());
@@ -284,18 +321,22 @@ void GeneralSettings::loadMiscSettings()
     _ui->stopExistingFolderNowBigSyncCheckBox->setChecked(_ui->existingFolderLimitCheckBox->isChecked() && cfgFile.stopSyncingExistingFoldersOverLimit());
     _ui->newExternalStorage->setChecked(cfgFile.confirmExternalStorage());
     _ui->monoIconsCheckBox->setChecked(cfgFile.monoIcons());
-
-#if defined(BUILD_UPDATER)
-    const auto validUpdateChannels = cfgFile.validUpdateChannels();
-    _ui->updateChannel->clear();
-    _ui->updateChannel->addItems(validUpdateChannels);
-    const auto currentUpdateChannelIndex = validUpdateChannels.indexOf(cfgFile.currentUpdateChannel());
-    _ui->updateChannel->setCurrentIndex(currentUpdateChannelIndex != -1? currentUpdateChannelIndex : 0);
-    connect(_ui->updateChannel, &QComboBox::currentTextChanged, this, &GeneralSettings::slotUpdateChannelChanged);
-#endif
 }
 
 #if defined(BUILD_UPDATER)
+void GeneralSettings::loadUpdateChannelsList() {
+    ConfigFile cfgFile;
+    const auto validUpdateChannels = cfgFile.validUpdateChannels();
+    if (_currentUpdateChannelList.isEmpty() || (_currentUpdateChannelList != validUpdateChannels && !cfgFile.serverHasValidSubscription())) {
+        _currentUpdateChannelList = validUpdateChannels;
+        _ui->updateChannel->clear();
+        _ui->updateChannel->addItems(_currentUpdateChannelList);
+        const auto currentUpdateChannelIndex = _currentUpdateChannelList.indexOf(cfgFile.currentUpdateChannel());
+        _ui->updateChannel->setCurrentIndex(currentUpdateChannelIndex != -1 ? currentUpdateChannelIndex : 0);
+        connect(_ui->updateChannel, &QComboBox::currentTextChanged, this, &GeneralSettings::slotUpdateChannelChanged);
+    }
+}
+
 void GeneralSettings::slotUpdateInfo()
 {
     ConfigFile config;
@@ -394,18 +435,23 @@ void GeneralSettings::slotUpdateChannelChanged()
         return;
     }
 
-    const auto enterprise = configFile.validUpdateChannels().contains("enterprise") ? tr("- enterprise: contains stable versions for customers.\n",
-                                                                                         "description of enterprise update channel for enterprise customers")
-                                                                                    : "";
+    const auto nonEnterpriseOptions = tr("- beta: contains versions with new features that may not be tested thoroughly\n"
+                                    "- daily: contains versions created daily only for testing and development\n"
+                                    "\n"
+                                    "Downgrading versions is not possible immediately: changing from beta to stable means waiting for the new stable version.",
+                                    "list of available update channels to non enterprise users and downgrading warning");
+    const auto enterpriseOptions = tr("- enterprise: contains stable versions for customers.\n"
+                                    "\n"
+                                    "Downgrading versions is not possible immediately: changing from stable to enterprise means waiting for the new enterprise version.",
+                                    "list of available update channels to enterprise users and downgrading warning");
+
     auto msgBox = new QMessageBox(
         QMessageBox::Warning,
         tr("Changing update channel?"),
         tr("The channel determines which upgrades will be offered to install:\n"
-           "- stable: contains tested versions considered reliable\n"
-           "- beta: contains versions with new features that may not be tested thoroughly\n"
-           "- daily: contains versions created daily only for testing and development\n"
-           "%1\n"
-           "Downgrading versions is not possible immediately: changing from beta to stable means waiting for the new stable version.").arg(enterprise),
+           "- stable: contains tested versions considered reliable\n",
+           "starts list of available update channels, stable is always available")
+            .append(configFile.validUpdateChannels().contains("enterprise") ? enterpriseOptions : nonEnterpriseOptions),
         QMessageBox::NoButton,
         this);
     const auto acceptButton = msgBox->addButton(tr("Change update channel"), QMessageBox::AcceptRole);
@@ -499,7 +545,14 @@ void GeneralSettings::slotToggleOptionalServerNotifications(bool enable)
 {
     ConfigFile cfgFile;
     cfgFile.setOptionalServerNotifications(enable);
+    _ui->chatNotificationsCheckBox->setEnabled(enable);
     _ui->callNotificationsCheckBox->setEnabled(enable);
+}
+
+void GeneralSettings::slotToggleChatNotifications(bool enable)
+{
+    ConfigFile cfgFile;
+    cfgFile.setShowChatNotifications(enable);
 }
 
 void GeneralSettings::slotToggleCallNotifications(bool enable)

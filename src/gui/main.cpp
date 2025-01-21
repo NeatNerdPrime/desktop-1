@@ -35,19 +35,26 @@
 #include <QMessageBox>
 #include <QDebug>
 #include <QQuickStyle>
+#include <QStyle>
+#include <QStyleFactory>
 #include <QQuickWindow>
 #include <QSurfaceFormat>
+#include <QOperatingSystemVersion>
 
 using namespace OCC;
 
 void warnSystray()
 {
-    QMessageBox::critical(nullptr, qApp->translate("main.cpp", "System Tray not available"),
+    QMessageBox::critical(
+        nullptr,
+        qApp->translate("main.cpp", "System Tray not available"),
         qApp->translate("main.cpp", "%1 requires on a working system tray. "
                                     "If you are running XFCE, please follow "
                                     "<a href=\"http://docs.xfce.org/xfce/xfce4-panel/systray\">these instructions</a>. "
                                     "Otherwise, please install a system tray application such as \"trayer\" and try again.")
-            .arg(Theme::instance()->appNameGUI()));
+            .arg(Theme::instance()->appNameGUI()),
+        QMessageBox::Ok
+    );
 }
 
 int main(int argc, char **argv)
@@ -76,11 +83,17 @@ int main(int argc, char **argv)
 #if defined Q_OS_MAC
     style = QStringLiteral("macOS");
 #elif defined Q_OS_WIN
-    style = QStringLiteral("Windows");
+    style = QStringLiteral("Fusion");
 #endif
 
     QQuickStyle::setStyle(style);
     QQuickStyle::setFallbackStyle(QStringLiteral("Fusion"));
+
+#if defined Q_OS_WIN
+    if (QOperatingSystemVersion::current().version() < QOperatingSystemVersion::Windows11.version()) {
+        QApplication::setStyle(QStyleFactory::create("Fusion"));
+    }
+#endif
 
     OCC::Application app(argc, argv);
 

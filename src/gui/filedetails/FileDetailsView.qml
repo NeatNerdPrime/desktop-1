@@ -31,14 +31,14 @@ StackView {
     property bool backgroundsVisible: true
 
     background: Rectangle {
-        color: palette.window
+        color: palette.base
         visible: root.backgroundsVisible
     }
 
     initialItem: FileDetailsPage {
         id: fileDetailsPage
-        width: parent.width
-        height: parent.height
+        width: root.width
+        height: root.height
         backgroundsVisible: root.backgroundsVisible
         rootStackView: root
         onCloseButtonClicked: root.closeButtonClicked()

@@ -249,6 +249,9 @@ void SyncFileStatusTracker::slotAboutToPropagate(SyncFileItemVector &items)
         }
 
         SharedFlag sharedFlag = item->_remotePerm.hasPermission(RemotePermissions::IsShared) ? Shared : NotShared;
+        if (item->_instruction != CSyncEnums::CSYNC_INSTRUCTION_REMOVE) {
+            item->_discoveryResult.clear();
+        }
         if (item->_instruction != CSYNC_INSTRUCTION_NONE
             && item->_instruction != CSYNC_INSTRUCTION_UPDATE_METADATA
             && item->_instruction != CSYNC_INSTRUCTION_IGNORE
@@ -265,7 +268,7 @@ void SyncFileStatusTracker::slotAboutToPropagate(SyncFileItemVector &items)
     // Swap into a copy since fileStatus() reads _dirtyPaths to determine the status
     QSet<QString> oldDirtyPaths;
     std::swap(_dirtyPaths, oldDirtyPaths);
-    for (const auto &oldDirtyPath : qAsConst(oldDirtyPaths))
+    for (const auto &oldDirtyPath : std::as_const(oldDirtyPaths))
         emit fileStatusChanged(getSystemDestination(oldDirtyPath), fileStatus(oldDirtyPath));
 
     // Make sure to push any status that might have been resolved indirectly since the last sync

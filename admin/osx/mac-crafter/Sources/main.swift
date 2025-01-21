@@ -60,10 +60,28 @@ struct Build: ParsableCommand {
 
     @Option(name: [.long], help: "Sparkle download URL.")
     var sparkleDownloadUrl =
-        "https://github.com/sparkle-project/Sparkle/releases/download/1.27.3/Sparkle-1.27.3.tar.xz"
+        "https://github.com/sparkle-project/Sparkle/releases/download/2.6.4/Sparkle-2.6.4.tar.xz"
 
     @Option(name: [.long], help: "Git clone command; include options such as depth.")
     var gitCloneCommand = "git clone --depth=1"
+
+    @Option(name: [.long], help: "Apple ID, used for notarisation.")
+    var appleId: String?
+
+    @Option(name: [.long], help: "Apple ID password, used for notarisation.")
+    var applePassword: String?
+
+    @Option(name: [.long], help: "Apple Team ID, used for notarisation.")
+    var appleTeamId: String?
+
+    @Option(name: [.long], help: "Apple package signing ID.")
+    var packageSigningId: String?
+
+    @Option(name: [.long], help: "Sparkle package signing key.")
+    var sparklePackageSignKey: String?
+
+    @Option(name: [.long], help: "Override server url.")
+    var overrideServerUrl: String?
 
     @Flag(help: "Reconfigure KDE Craft.")
     var reconfigureCraft = false
@@ -85,6 +103,15 @@ struct Build: ParsableCommand {
 
     @Flag(help: "Run a full rebuild.")
     var fullRebuild = false
+
+    @Flag(help: "Force override server URL.")
+    var forceOverrideServerUrl = false
+
+    @Flag(help: "Create an installer package.")
+    var package = false
+
+    @Flag(help: "Build in developer mode.")
+    var dev = false
 
     mutating func run() throws {
         print("Configuring build tooling.")
@@ -110,7 +137,7 @@ struct Build: ParsableCommand {
         let craftMasterDir = "\(buildPath)/craftmaster"
         let craftMasterIni = "\(repoRootDir)/craftmaster.ini"
         let craftMasterPy = "\(craftMasterDir)/CraftMaster.py"
-        let craftTarget = arch == "arm64" ? "macos-clang-arm64" : "macos-64-clang"
+        let craftTarget = archToCraftTarget(arch)
         let craftCommand =
             "python3 \(craftMasterPy) --config \(craftMasterIni) --target \(craftTarget) -c"
 
@@ -150,6 +177,16 @@ struct Build: ParsableCommand {
             "\(craftBlueprintName).buildFileProviderModule=\(buildFileProviderModule ? "True" : "False")"
         ]
 
+        if let overrideServerUrl {
+            craftOptions.append("\(craftBlueprintName).overrideServerUrl=\(overrideServerUrl)")
+            craftOptions.append("\(craftBlueprintName).forceOverrideServerUrl=\(forceOverrideServerUrl ? "True" : "False")")
+        }
+
+        if dev {
+            appName += "Dev"
+            craftOptions.append("\(craftBlueprintName).devMode=True")
+        }
+
         if !disableAutoUpdater {
             print("Configuring Sparkle auto-updater.")
 
@@ -171,7 +208,7 @@ struct Build: ParsableCommand {
             )
         }
 
-        print("Crafting Nextcloud Desktop Client...")
+        print("Crafting \(appName) Desktop Client...")
 
         let allOptionsString = craftOptions.map({ "--options \"\($0)\"" }).joined(separator: " ")
 
@@ -209,6 +246,21 @@ struct Build: ParsableCommand {
         }
         try fm.copyItem(atPath: clientAppDir, toPath: "\(productPath)/\(appName).app")
 
+        if package {
+            try packageAppBundle(
+                productPath: productPath,
+                buildPath: buildPath,
+                craftTarget: craftTarget,
+                craftBlueprintName: craftBlueprintName,
+                appName: appName,
+                packageSigningId: packageSigningId,
+                appleId: appleId,
+                applePassword: applePassword,
+                appleTeamId: appleTeamId,
+                sparklePackageSignKey: sparklePackageSignKey
+            )
+        }
+
         print("Done!")
     }
 }
@@ -223,18 +275,68 @@ struct Codesign: ParsableCommand {
     var codeSignIdentity: String
 
     mutating func run() throws {
-        try codesignClientAppBundle(at: appBundlePath, withCodeSignIdentity: codeSignIdentity)
+        let absolutePath = appBundlePath.hasPrefix("/")
+            ? appBundlePath
+            : "\(FileManager.default.currentDirectoryPath)/\(appBundlePath)"
+        try codesignClientAppBundle(at: absolutePath, withCodeSignIdentity: codeSignIdentity)
+    }
+}
+
+struct Package: ParsableCommand {
+    static let configuration = CommandConfiguration(abstract: "Packaging script for the client.")
+
+    @Option(name: [.short, .long], help: "Architecture.")
+    var arch = "arm64"
+
+    @Option(name: [.short, .long], help: "Path for build files to be written.")
+    var buildPath = "\(FileManager.default.currentDirectoryPath)/build"
+
+    @Option(name: [.short, .long], help: "Path for the final product to be put.")
+    var productPath = "\(FileManager.default.currentDirectoryPath)/product"
+
+    @Option(name: [.long], help: "Nextcloud Desktop Client craft blueprint name.")
+    var craftBlueprintName = "nextcloud-client"
+
+    @Option(name: [.long], help: "The application's branded name.")
+    var appName = "Nextcloud"
+
+    @Option(name: [.long], help: "Apple ID, used for notarisation.")
+    var appleId: String?
+
+    @Option(name: [.long], help: "Apple ID password, used for notarisation.")
+    var applePassword: String?
+
+    @Option(name: [.long], help: "Apple Team ID, used for notarisation.")
+    var appleTeamId: String?
+
+    @Option(name: [.long], help: "Apple package signing ID.")
+    var packageSigningId: String?
+
+    @Option(name: [.long], help: "Sparkle package signing key.")
+    var sparklePackageSignKey: String?
+
+    mutating func run() throws {
+        try packageAppBundle(
+            productPath: productPath,
+            buildPath: buildPath,
+            craftTarget: archToCraftTarget(arch),
+            craftBlueprintName: craftBlueprintName,
+            appName: appName,
+            packageSigningId: packageSigningId,
+            appleId: appleId,
+            applePassword: applePassword,
+            appleTeamId: appleTeamId,
+            sparklePackageSignKey: sparklePackageSignKey
+        )
     }
 }
 
 struct MacCrafter: ParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "A tool to easily build a fully-functional Nextcloud Desktop Client for macOS.",
-        subcommands: [Build.self, Codesign.self],
+        subcommands: [Build.self, Codesign.self, Package.self],
         defaultSubcommand: Build.self
     )
-
-
 }
 
 MacCrafter.main()

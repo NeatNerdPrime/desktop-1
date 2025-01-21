@@ -90,7 +90,8 @@ QVariant ShareModel::data(const QModelIndex &index, const int role) const
 {
     Q_ASSERT(checkIndex(index, QAbstractItemModel::CheckIndexOption::IndexIsValid | QAbstractItemModel::CheckIndexOption::ParentIsInvalid));
 
-    const auto share = _shares.at(index.row());
+    const auto shareIdx = index.row();
+    const auto share = _shares.at(shareIdx);
 
     if (!share) {
         return {};
@@ -138,7 +139,7 @@ QVariant ShareModel::data(const QModelIndex &index, const int role) const
 
     switch (role) {
     case Qt::DisplayRole:
-        return displayStringForShare(share);
+        return displayStringForShare(share, _duplicateDisplayNameShareIndices.contains(shareIdx));
     case ShareRole:
         return QVariant::fromValue(share);
     case ShareTypeRole:
@@ -219,11 +220,21 @@ void ShareModel::resetData()
     _fetchOngoing = false;
     _hasInitialShareFetchCompleted = false;
     _sharees.clear();
+    _displayShareOwner = false;
+    _shareOwnerDisplayName.clear();
+    _shareOwnerAvatar.clear();
+    _sharedWithMeExpires = false;
+    _sharedWithMeRemainingTimeString.clear();
 
     Q_EMIT sharePermissionsChanged();
     Q_EMIT fetchOngoingChanged();
     Q_EMIT hasInitialShareFetchCompletedChanged();
     Q_EMIT shareesChanged();
+    Q_EMIT displayShareOwnerChanged();
+    Q_EMIT shareOwnerDisplayNameChanged();
+    Q_EMIT shareOwnerAvatarChanged();
+    Q_EMIT sharedWithMeExpiresChanged();
+    Q_EMIT sharedWithMeRemainingTimeStringChanged();
 
     endResetModel();
 }
@@ -318,7 +329,9 @@ void ShareModel::updateData()
     auto job = new PropfindJob(_accountState->account(), _sharePath);
     job->setProperties(QList<QByteArray>() << "http://open-collaboration-services.org/ns:share-permissions"
                                            << "http://owncloud.org/ns:fileid" // numeric file id for fallback private link generation
-                                           << "http://owncloud.org/ns:privatelink");
+                                           << "http://owncloud.org/ns:privatelink"
+                                           << "http://owncloud.org/ns:owner-id"
+                                           << "http://owncloud.org/ns:owner-display-name");
     job->setTimeout(10 * 1000);
     connect(job, &PropfindJob::result, this, &ShareModel::slotPropfindReceived);
     connect(job, &PropfindJob::finishedWithError, this, [&](const QNetworkReply *reply) {
@@ -372,7 +385,7 @@ void ShareModel::handlePlaceholderLinkShare()
     auto linkSharePresent = false;
     auto placeholderLinkSharePresent = false;
 
-    for (const auto &share : qAsConst(_shares)) {
+    for (const auto &share : std::as_const(_shares)) {
         const auto shareType = share->getShareType();
 
         if (!linkSharePresent && shareType == Share::TypeLink) {
@@ -402,7 +415,7 @@ void ShareModel::handleSecureFileDropLinkShare()
     auto linkSharePresent = false;
     auto secureFileDropLinkSharePresent = false;
 
-    for (const auto &share : qAsConst(_shares)) {
+    for (const auto &share : std::as_const(_shares)) {
         const auto shareType = share->getShareType();
 
         if (!linkSharePresent && shareType == Share::TypeLink) {
@@ -476,14 +489,73 @@ void ShareModel::slotSharesFetched(const QList<SharePtr> &shares)
     qCInfo(lcSharing) << "Fetched" << shares.count() << "shares";
 
     for (const auto &share : shares) {
-        if (share.isNull() ||
-            share->account().isNull() ||
-            share->getUidOwner() != share->account()->davUser()) {
+        if (share.isNull()) {
+            continue;
+        } else if (const auto selfUserId = share->account()->davUser(); share->getUidOwner() != selfUserId) {
+            _displayShareOwner = true;
+            Q_EMIT displayShareOwnerChanged();
+            _shareOwnerDisplayName = share->getOwnerDisplayName();
+            Q_EMIT shareOwnerDisplayNameChanged();
+            _shareOwnerAvatar = "image://avatars/user-id="
+                + share->getUidOwner()
+                + "/local-account:"
+                + share->account()->displayName();
+            Q_EMIT shareOwnerAvatarChanged();
 
+            if (share->getShareType() == Share::TypeUser &&
+                share->getShareWith() &&
+                share->getShareWith()->shareWith() == selfUserId)
+            {
+                const auto userShare = share.objectCast<UserGroupShare>();
+                const auto expireDate = userShare->getExpireDate();
+                const auto daysToExpire = QDate::currentDate().daysTo(expireDate);
+                _sharedWithMeExpires = expireDate.isValid();
+                Q_EMIT sharedWithMeExpiresChanged();
+                _sharedWithMeRemainingTimeString = daysToExpire > 1
+                    ? tr("%1 days").arg(daysToExpire)
+                    :  daysToExpire > 0
+                        ? tr("1 day")
+                        : tr("Today");
+                Q_EMIT sharedWithMeRemainingTimeStringChanged();
+            }
+        } else {
+            slotAddShare(share);
+        }
+    }
+
+    // Perform forward pass on shares and check for duplicate display names; store these indeces so
+    // we can check for these and display the specific user identifier in the display string later
+    _duplicateDisplayNameShareIndices.clear();
+    const auto shareCount = _shares.count();
+    for (auto i = 0; i < shareCount; ++i) {
+        if (_duplicateDisplayNameShareIndices.contains(i)) {
             continue;
         }
 
-        slotAddShare(share);
+        const auto sharee = _shares.at(i)->getShareWith();
+        if (sharee == nullptr) {
+            continue;
+        }
+
+        const auto duplicateIndices = QSharedPointer<QSet<unsigned int>>::create();
+        const auto handleDuplicateIndex = [this, duplicateIndices](const unsigned int idx) {
+            duplicateIndices->insert(idx);
+            _duplicateDisplayNameShareIndices[idx] = duplicateIndices;
+            const auto targetIdx = index(idx);
+            dataChanged(targetIdx, targetIdx, {Qt::DisplayRole});
+        };
+
+        for (auto j = i + 1; j < shareCount; ++j) {
+            const auto otherSharee = _shares.at(j)->getShareWith();
+            if (otherSharee == nullptr || sharee->format() != otherSharee->format()) {
+                continue;
+            }
+            handleDuplicateIndex(j);
+        }
+
+        if (!duplicateIndices->isEmpty()) {
+            handleDuplicateIndex(i);
+        }
     }
 
     handleLinkShare();
@@ -611,9 +683,25 @@ void ShareModel::slotRemoveShareWithId(const QString &shareId)
     const auto sharee = share->getShareWith();
     slotRemoveSharee(sharee);
 
-    beginRemoveRows({}, shareIndex.row(), shareIndex.row());
-    _shares.removeAt(shareIndex.row());
+    const auto shareRow = shareIndex.row();
+    beginRemoveRows({}, shareRow, shareRow);
+    _shares.removeAt(shareRow);
     endRemoveRows();
+
+    // Handle display name duplicates now. First remove the index from the bucket it was in; then,
+    // check if this removal means the remaining index in the bucket is no longer a duplicate.
+    // If this is the case then handle the update for this item too.
+    const auto duplicateShares = _duplicateDisplayNameShareIndices.value(shareRow);
+    if (duplicateShares) {
+        duplicateShares->remove(shareRow);
+        if (duplicateShares->count() == 1) {
+            const auto noLongerDuplicateIndex = *(duplicateShares->begin());
+            _duplicateDisplayNameShareIndices.remove(noLongerDuplicateIndex);
+            const auto noLongerDuplicateModelIndex = index(noLongerDuplicateIndex);
+            Q_EMIT dataChanged(noLongerDuplicateModelIndex, noLongerDuplicateModelIndex, {Qt::DisplayRole});
+        }
+        _duplicateDisplayNameShareIndices.remove(shareRow);
+    }
 
     handleLinkShare();
 
@@ -642,7 +730,7 @@ void ShareModel::slotRemoveSharee(const ShareePtr &sharee)
     Q_EMIT shareesChanged();
 }
 
-QString ShareModel::displayStringForShare(const SharePtr &share) const
+QString ShareModel::displayStringForShare(const SharePtr &share, const bool verbose) const
 {
     if (const auto linkShare = share.objectCast<LinkShare>()) {
 
@@ -662,7 +750,8 @@ QString ShareModel::displayStringForShare(const SharePtr &share) const
     } else if (share->getShareType() == Share::TypeSecureFileDropPlaceholderLink) {
         return tr("Secure file drop");
     } else if (share->getShareWith()) {
-        return share->getShareWith()->format();
+        const auto sharee = share->getShareWith();
+        return verbose ? QString{"%1 (%2)"}.arg(sharee->format(), sharee->shareWith()) : sharee->format();
     }
 
     qCWarning(lcShareModel) << "Unable to provide good display string for share";
@@ -1324,6 +1413,31 @@ bool ShareModel::serverAllowsResharing() const
 bool ShareModel::isShareDisabledEncryptedFolder() const
 {
     return _isShareDisabledEncryptedFolder;
+}
+
+bool ShareModel::displayShareOwner() const
+{
+    return _displayShareOwner;
+}
+
+QString ShareModel::shareOwnerDisplayName() const
+{
+    return _shareOwnerDisplayName;
+}
+
+QString ShareModel::shareOwnerAvatar() const
+{
+    return _shareOwnerAvatar;
+}
+
+QString ShareModel::sharedWithMeRemainingTimeString() const
+{
+    return _sharedWithMeRemainingTimeString;
+}
+
+bool ShareModel::sharedWithMeExpires() const
+{
+    return _sharedWithMeExpires;
 }
 
 QVariantList ShareModel::sharees() const

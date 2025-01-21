@@ -69,7 +69,7 @@ Page {
     bottomPadding: intendedPadding
 
     background: Rectangle {
-        color: palette.window
+        color: palette.base
         visible: root.backgroundsVisible
     }
 
@@ -130,19 +130,19 @@ Page {
                 wrapMode: Text.Wrap
             }
 
-            CustomButton {
+            Button {
                 id: closeButton
 
                 Layout.rowSpan: headerGridLayout.rows
-                Layout.preferredWidth: Style.iconButtonWidth
-                Layout.preferredHeight: width
+                Layout.preferredWidth: Style.activityListButtonWidth
+                Layout.preferredHeight: Style.activityListButtonHeight
+                Layout.alignment: Qt.AlignHCenter | Qt.AlignVCenter
                 Layout.rightMargin: headerGridLayout.textRightMargin
 
                 icon.source: "image://svgimage-custom-color/clear.svg" + "/" + palette.buttonText
-                toolTipText: qsTr("Dismiss")
-
+                icon.width: Style.activityListButtonIconSize
+                icon.height: Style.activityListButtonIconSize
                 visible: root.showCloseButton
-
                 onClicked: root.closeButtonClicked()
             }
 
@@ -224,7 +224,6 @@ Page {
             NCTabButton {
                 svgCustomColorSource: "image://svgimage-custom-color/activity.svg"
                 text: qsTr("Activity")
-                accentColor: root.accentColor
                 checked: swipeView.currentIndex === fileActivityView.swipeIndex
                 onClicked: swipeView.currentIndex = fileActivityView.swipeIndex
             }
@@ -234,7 +233,6 @@ Page {
                 height: visible ? implicitHeight : 0
                 svgCustomColorSource: "image://svgimage-custom-color/share.svg"
                 text: qsTr("Sharing")
-                accentColor: root.accentColor
                 checked: swipeView.currentIndex === shareViewLoader.swipeIndex
                 onClicked: swipeView.currentIndex = shareViewLoader.swipeIndex
                 visible: root.fileDetails.sharingAvailable

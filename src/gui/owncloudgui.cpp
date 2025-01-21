@@ -64,6 +64,10 @@
 #include <QQuickItem>
 #include <QQmlContext>
 
+#ifdef Q_OS_MAC
+#include "foregroundbackground_interface.h"
+#endif
+
 #ifdef BUILD_FILE_PROVIDER_MODULE
 #include "macOS/fileprovider.h"
 #include "macOS/fileproviderdomainmanager.h"
@@ -114,6 +118,8 @@ ownCloudGui::ownCloudGui(Application *parent)
 
     FolderMan *folderMan = FolderMan::instance();
     connect(folderMan, &FolderMan::folderSyncStateChange, this, &ownCloudGui::slotSyncStateChange);
+    connect(folderMan, &FolderMan::folderSyncStateChange, this, &ownCloudGui::slotComputeOverallSyncStatus);
+
 
 #ifdef BUILD_FILE_PROVIDER_MODULE
     connect(Mac::FileProvider::instance()->socketServer(), &Mac::FileProviderSocketServer::syncStateChanged, this, &ownCloudGui::slotComputeOverallSyncStatus);
@@ -236,8 +242,6 @@ void ownCloudGui::slotTrayClicked(QSystemTrayIcon::ActivationReason reason)
 
 void ownCloudGui::slotSyncStateChange(Folder *folder)
 {
-    slotComputeOverallSyncStatus();
-
     if (!folder) {
         return; // Valid, just a general GUI redraw was needed.
     }
@@ -250,23 +254,13 @@ void ownCloudGui::slotSyncStateChange(Folder *folder)
         || result.status() == SyncResult::Problem
         || result.status() == SyncResult::SyncAbortRequested
         || result.status() == SyncResult::Error) {
-        Logger::instance()->enterNextLogFile();
+        Logger::instance()->enterNextLogFile(QStringLiteral("nextcloud.log"), OCC::Logger::LogType::Log);
     }
-}
-
-void ownCloudGui::slotFoldersChanged()
-{
-    slotComputeOverallSyncStatus();
 }
 
 void ownCloudGui::slotOpenPath(const QString &path)
 {
     showInFileManager(path);
-}
-
-void ownCloudGui::slotAccountStateChanged()
-{
-    slotComputeOverallSyncStatus();
 }
 
 void ownCloudGui::slotTrayMessageIfServerUnsupported(Account *account)
@@ -278,6 +272,19 @@ void ownCloudGui::slotTrayMessageIfServerUnsupported(Account *account)
                "Using this client with unsupported server versions is untested and "
                "potentially dangerous. Proceed at your own risk.")
                 .arg(account->displayName(), account->serverVersion()));
+    }
+}
+
+void ownCloudGui::slotNeedToAcceptTermsOfService(OCC::AccountPtr account,
+                                                 AccountState::State state)
+{
+    if (state == AccountState::NeedToSignTermsOfService) {
+        slotShowTrayMessage(
+            tr("Terms of service"),
+            tr("Your account %1 requires you to accept the terms of service of your server. "
+               "You will be redirected to %2 to acknowledge that you have read it and agrees with it.")
+                .arg(account->displayName(), account->url().toString()));
+        QDesktopServices::openUrl(account->url());
     }
 }
 
@@ -312,6 +319,7 @@ void ownCloudGui::slotComputeOverallSyncStatus()
             if (!Mac::FileProviderSettingsController::instance()->vfsEnabledForAccount(accountFpId)) {
                 continue;
             }
+            allPaused = false;
             const auto fileProvider = Mac::FileProvider::instance();
 
             if (!fileProvider->xpc()->fileProviderExtReachable(accountFpId)) {
@@ -354,7 +362,7 @@ void ownCloudGui::slotComputeOverallSyncStatus()
 #else
         QStringList messages;
         messages.append(tr("Disconnected from accounts:"));
-        for (const auto &accountState : problemAccounts) {
+        for (const auto &accountState : std::as_const(problemAccounts)) {
             QString message = tr("Account %1: %2").arg(accountState->account()->displayName(), accountState->stateString(accountState->state()));
             if (!accountState->connectionErrors().empty()) {
                 message += QLatin1String("\n");
@@ -431,6 +439,7 @@ void ownCloudGui::slotComputeOverallSyncStatus()
                                                                        folder->syncResult().hasUnresolvedConflicts(),
                                                                        folder->syncPaused(),
                                                                        folder->syncEngine().progressInfo());
+            //: Example text: "Nextcloud: Syncing 25MB (3 minutes left)"   (%1 is the folder name to be synced, %2 a status message for that folder)
             allStatusStrings += tr("%1: %2").arg(folder->shortGuiLocalPath(), folderMessage);
         }
 #ifdef BUILD_FILE_PROVIDER_MODULE
@@ -597,6 +606,10 @@ void ownCloudGui::slotShowSettings()
     if (_settingsDialog.isNull()) {
         _settingsDialog = new SettingsDialog(this);
         _settingsDialog->setAttribute(Qt::WA_DeleteOnClose, true);
+#ifdef Q_OS_MAC
+        auto *fgbg = new ForegroundBackground();
+        _settingsDialog->installEventFilter(fgbg);
+#endif
         _settingsDialog->show();
     }
     raiseDialog(_settingsDialog.data());

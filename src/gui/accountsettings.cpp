@@ -205,6 +205,7 @@ AccountSettings::AccountSettings(AccountState *accountState, QWidget *parent)
         const auto fpAccountUserIdAtHost = _accountState->account()->userIdAtHostWithPort();
         const auto fpSettingsController = Mac::FileProviderSettingsController::instance();
         const auto fpSettingsWidget = fpSettingsController->settingsViewWidget(fpAccountUserIdAtHost, fileProviderTab);
+        fpSettingsLayout->setContentsMargins(0, 0, 0, 0);
         fpSettingsLayout->addWidget(fpSettingsWidget);
         fileProviderTab->setLayout(fpSettingsLayout);
     }
@@ -220,6 +221,7 @@ AccountSettings::AccountSettings(AccountState *accountState, QWidget *parent)
     const auto connectionSettingsTab = _ui->connectionSettingsTab;
     const auto connectionSettingsLayout = new QVBoxLayout(connectionSettingsTab);
     const auto networkSettings = new NetworkSettings(_accountState->account(), connectionSettingsTab);
+    connectionSettingsLayout->setContentsMargins(0, 0, 0, 0);
     connectionSettingsLayout->addWidget(networkSettings);
     connectionSettingsTab->setLayout(connectionSettingsLayout);
 
@@ -708,8 +710,9 @@ void AccountSettings::slotCustomContextMenuRequested(const QPoint &pos)
         ac->setDisabled(Theme::instance()->enforceVirtualFilesSyncFolder());
     }
 
-    if (Theme::instance()->showVirtualFilesOption() && !folder->virtualFilesEnabled() && Vfs::checkAvailability(folder->path())) {
-        const auto mode = bestAvailableVfsMode();
+    if (const auto mode = bestAvailableVfsMode();
+        Theme::instance()->showVirtualFilesOption()
+        && !folder->virtualFilesEnabled() && Vfs::checkAvailability(folder->path(), mode)) {
         if (mode == Vfs::WindowsCfApi || ConfigFile().showExperimentalOptions()) {
             ac = menu->addAction(tr("Enable virtual file support %1 …").arg(mode == Vfs::WindowsCfApi ? QString() : tr("(experimental)")));
             // TODO: remove when UX decision is made
@@ -732,7 +735,7 @@ void AccountSettings::slotFolderListClicked(const QModelIndex &indx)
         QStyleOptionViewItem opt;
         opt.initFrom(treeView);
         const auto btnRect = treeView->visualRect(indx);
-        const auto btnSize = treeView->itemDelegate(indx)->sizeHint(opt, indx);
+        const auto btnSize = treeView->itemDelegateForIndex(indx)->sizeHint(opt, indx);
         const auto actual = QStyle::visualRect(opt.direction, btnRect, QRect(btnRect.topLeft(), btnSize));
         if (!actual.contains(pos)) {
             return;
@@ -874,7 +877,6 @@ void AccountSettings::slotRemoveCurrentFolder()
         messageBox->addButton(tr("Cancel"), QMessageBox::NoRole);
         connect(messageBox, &QMessageBox::finished, this, [messageBox, yesButton, folder, row, this]{
             if (messageBox->clickedButton() == yesButton) {
-                Utility::removeFavLink(folder->path());
                 FolderMan::instance()->removeFolder(folder);
                 _model->removeRow(row);
 
@@ -1319,6 +1321,9 @@ void AccountSettings::slotAccountStateChanged()
         case AccountState::Disconnected:
             // we can't end up here as the whole block is ifdeffed
             Q_UNREACHABLE();
+            break;
+        case AccountState::NeedToSignTermsOfService:
+            showConnectionLabel(tr("You need to accept the terms of service"));
             break;
         }
     } else {

@@ -339,7 +339,7 @@ private:
     QString _remotePath;
     QByteArray _remoteRootEtag;
     SyncJournalDb *_journal;
-    QScopedPointer<DiscoveryPhase> _discoveryPhase;
+    std::unique_ptr<DiscoveryPhase> _discoveryPhase;
     QSharedPointer<OwncloudPropagator> _propagator;
 
     QSet<QString> _bulkUploadBlackList;
@@ -368,6 +368,8 @@ private:
     void cancelSyncOrContinue(bool cancel);
 
     void finishSync();
+
+    bool handleMassDeletion();
 
     void handleRemnantReadOnlyFolders();
 

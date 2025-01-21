@@ -47,6 +47,8 @@ TextField {
 
     placeholderText: enabled ? qsTr("Search for users or groups…") : qsTr("Sharing is not available for this folder")
     placeholderTextColor: placeholderColor
+    verticalAlignment: Qt.AlignVCenter
+    implicitHeight: Math.max(Style.talkReplyTextFieldPreferredHeight, contentHeight)
 
     onActiveFocusChanged: triggerSuggestionsVisibility()
     onTextChanged: triggerSuggestionsVisibility()

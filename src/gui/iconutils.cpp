@@ -111,7 +111,7 @@ QImage createSvgImageWithCustomColor(const QString &fileName,
     const auto sizeToUse = requestedSize.isValid() || originalSize == nullptr ? requestedSize : *originalSize;
 
     // some icons are present in white or black only, so, we need to check both when needed
-    const auto iconBaseColors = QStringList{QStringLiteral("black"), QStringLiteral("white")};
+    const auto iconBaseColors = QStringList{QStringLiteral("black"), QStringLiteral("white"), QStringLiteral("colored")};
     const auto customColorImage = findImageWithCustomColor(fileName, customColor, iconBaseColors, sizeToUse);
 
     if (!customColorImage.isNull()) {
@@ -128,7 +128,6 @@ QImage createSvgImageWithCustomColor(const QString &fileName,
     }
 
     const auto result = drawSvgWithCustomFillColor(sourceSvg, customColor, originalSize, sizeToUse);
-    Q_ASSERT(!result.isNull());
 
     if (result.isNull()) {
         qCWarning(lcIconUtils) << "Failed to load pixmap for" << fileName;
