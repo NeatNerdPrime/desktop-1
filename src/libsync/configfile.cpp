@@ -54,9 +54,11 @@ static constexpr char fullLocalDiscoveryIntervalC[] = "fullLocalDiscoveryInterva
 static constexpr char notificationRefreshIntervalC[] = "notificationRefreshInterval";
 static constexpr char monoIconsC[] = "monoIcons";
 static constexpr char promptDeleteC[] = "promptDeleteAllFiles";
+static constexpr char deleteFilesThresholdC[] = "deleteFilesThreshold";
 static constexpr char crashReporterC[] = "crashReporter";
 static constexpr char optionalServerNotificationsC[] = "optionalServerNotifications";
 static constexpr char showCallNotificationsC[] = "showCallNotifications";
+static constexpr char showChatNotificationsC[] = "showChatNotifications";
 static constexpr char showInExplorerNavigationPaneC[] = "showInExplorerNavigationPane";
 static constexpr char skipUpdateCheckC[] = "skipUpdateCheck";
 static constexpr char autoUpdateCheckC[] = "autoUpdateCheck";
@@ -112,6 +114,8 @@ static const QStringList defaultUpdateChannelsList { QStringLiteral("stable"), Q
 static const QString defaultUpdateChannelName = "stable";
 static const QStringList enterpriseUpdateChannelsList { QStringLiteral("stable"), QStringLiteral("enterprise") };
 static const QString defaultEnterpriseChannel = "enterprise";
+
+static constexpr int deleteFilesThresholdDefaultValue = 100;
 }
 
 namespace OCC {
@@ -202,6 +206,19 @@ bool ConfigFile::optionalServerNotifications() const
     return settings.value(QLatin1String(optionalServerNotificationsC), true).toBool();
 }
 
+bool ConfigFile::showChatNotifications() const
+{
+    const QSettings settings(configFile(), QSettings::IniFormat);
+    return settings.value(QLatin1String(showChatNotificationsC), true).toBool() && optionalServerNotifications();
+}
+
+void ConfigFile::setShowChatNotifications(const bool show)
+{
+    QSettings settings(configFile(), QSettings::IniFormat);
+    settings.setValue(QLatin1String(showChatNotificationsC), show);
+    settings.sync();
+}
+
 bool ConfigFile::showCallNotifications() const
 {
     const QSettings settings(configFile(), QSettings::IniFormat);
@@ -244,7 +261,7 @@ int ConfigFile::timeout() const
 qint64 ConfigFile::chunkSize() const
 {
     QSettings settings(configFile(), QSettings::IniFormat);
-    return settings.value(QLatin1String(chunkSizeC), 10LL * 1000LL * 1000LL).toLongLong(); // default to 10 MB
+    return settings.value(QLatin1String(chunkSizeC), 100LL * 1024LL * 1024LL).toLongLong(); // 100MiB
 }
 
 qint64 ConfigFile::maxChunkSize() const
@@ -446,7 +463,7 @@ QString ConfigFile::backup(const QString &fileName) const
     }
 
     QString backupFile =
-        QString("%1.backup_%2%3")
+        QStringLiteral("%1.backup_%2%3")
             .arg(baseFilePath)
             .arg(QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss"))
             .arg(versionString);
@@ -704,32 +721,25 @@ QString ConfigFile::defaultUpdateChannel() const
     if (serverHasValidSubscription() && !isBranded) {
         if (const auto serverChannel = desktopEnterpriseChannel();
             validUpdateChannels().contains(serverChannel)) {
-            qCWarning(lcConfigFile()) << "Enforcing update channel" << serverChannel << "because that is the desktop enterprise channel returned by the server.";
+            qCWarning(lcConfigFile()) << "Default update channel is" << serverChannel << "because that is the desktop enterprise channel returned by the server.";
             return serverChannel;
         }
     }
 
     if (const auto currentVersionSuffix = Theme::instance()->versionSuffix();
         validUpdateChannels().contains(currentVersionSuffix) && !isBranded) {
-        qCWarning(lcConfigFile()) << "Enforcing update channel" << currentVersionSuffix << "because of the version suffix of the current client.";
+        qCWarning(lcConfigFile()) << "Default update channel is" << currentVersionSuffix << "because of the version suffix of the current client.";
         return currentVersionSuffix;
     }
 
-    qCWarning(lcConfigFile()) << "Enforcing default update channel" << defaultUpdateChannelName;
+    qCWarning(lcConfigFile()) << "Default update channel is" << defaultUpdateChannelName;
     return defaultUpdateChannelName;
 }
 
 QString ConfigFile::currentUpdateChannel() const
 {
-    auto updateChannel = defaultUpdateChannel();
     QSettings settings(configFile(), QSettings::IniFormat);
-    if (const auto configUpdateChannel = settings.value(QLatin1String(updateChannelC), updateChannel).toString();
-        validUpdateChannels().contains(configUpdateChannel)) {
-        qCWarning(lcConfigFile()) << "Config file has a valid update channel:" << configUpdateChannel;
-        updateChannel = configUpdateChannel;
-    }
-
-    return updateChannel;
+    return settings.value(QLatin1String(updateChannelC), defaultUpdateChannel()).toString();
 }
 
 void ConfigFile::setUpdateChannel(const QString &channel)
@@ -1045,6 +1055,18 @@ void ConfigFile::setPromptDeleteFiles(bool promptDeleteFiles)
 {
     QSettings settings(configFile(), QSettings::IniFormat);
     settings.setValue(QLatin1String(promptDeleteC), promptDeleteFiles);
+}
+
+int ConfigFile::deleteFilesThreshold() const
+{
+    QSettings settings(configFile(), QSettings::IniFormat);
+    return settings.value(QLatin1String(deleteFilesThresholdC), deleteFilesThresholdDefaultValue).toInt();
+}
+
+void ConfigFile::setDeleteFilesThreshold(int thresholdValue)
+{
+    QSettings settings(configFile(), QSettings::IniFormat);
+    settings.setValue(QLatin1String(deleteFilesThresholdC), thresholdValue);
 }
 
 bool ConfigFile::monoIcons() const

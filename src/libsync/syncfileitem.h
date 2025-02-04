@@ -326,6 +326,7 @@ public:
     QString _lockEditorApp;
     qint64 _lockTime = 0;
     qint64 _lockTimeout = 0;
+    QString _lockToken;
 
     bool _isShared = false;
     time_t _lastShareStateFetchedTimestamp = 0;
@@ -338,6 +339,13 @@ public:
 
     bool _isAnyInvalidCharChild = false;
     bool _isAnyCaseClashChild = false;
+
+    bool _isLivePhoto = false;
+    QString _livePhotoFile;
+
+    bool isPermissionsInvalid = false;
+
+    QString _discoveryResult;
 };
 
 inline bool operator<(const SyncFileItemPtr &item1, const SyncFileItemPtr &item2)

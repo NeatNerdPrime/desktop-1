@@ -11,6 +11,7 @@
  * or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
  * for more details.
  */
+pragma NativeMethodBehavior: AcceptThisObject
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -26,6 +27,7 @@ HeaderButton {
 
     required property var currentUser
     property bool userHasGroupFolders: currentUser.groupFolders.length > 0
+    property color parentBackgroundColor: "transparent"
 
     function openMenu() {
         foldersMenuLoader.openMenu()
@@ -90,17 +92,8 @@ HeaderButton {
                     id: folderStateIndicatorBackground
                     width: Style.folderStateIndicatorSize + Style.trayFolderStatusIndicatorSizeOffset
                     height: width
+                    color: root.parentBackgroundColor
                     anchors.centerIn: parent
-                    radius: width * Style.trayFolderStatusIndicatorRadiusFactor
-                    z: -2
-                }
-
-                Rectangle {
-                    id: folderStateIndicatorBackgroundMouseHover
-                    width: Style.folderStateIndicatorSize + Style.trayFolderStatusIndicatorSizeOffset
-                    height: width
-                    anchors.centerIn: parent
-                    opacity: Style.trayFolderStatusIndicatorMouseHoverOpacityFactor
                     radius: width * Style.trayFolderStatusIndicatorRadiusFactor
                     z: -1
                 }
@@ -114,7 +107,7 @@ HeaderButton {
 
                 cache: true
 
-                source: "image://svgimage-custom-color/folder.svg/"
+                source: "image://svgimage-custom-color/folder.svg/" + palette.windowText
                 sourceSize {
                     width: imageWidth
                     height: imageHeight
@@ -144,7 +137,7 @@ HeaderButton {
 
                     cache: true
 
-                    source: "image://svgimage-custom-color/caret-down.svg/"
+                    source: "image://svgimage-custom-color/caret-down.svg/" + palette.windowText
                     sourceSize {
                         width: openLocalFolderButtonCaretIconLoader.imageWidth
                         height: openLocalFolderButtonCaretIconLoader.imageHeight
@@ -208,9 +201,9 @@ HeaderButton {
                         subline: model.modelData.parentPath
                         width: foldersMenuListView.width
                         height: Style.standardPrimaryButtonHeight
-                        backgroundIconSource: "image://svgimage-custom-color/folder.svg/"
+                        backgroundIconSource: "image://svgimage-custom-color/folder.svg/" + palette.windowText
                         iconSource: isGroupFolder
-                                    ? "image://svgimage-custom-color/account-group.svg/"
+                                    ? "image://svgimage-custom-color/account-group.svg/" + palette.windowText
                                     : ""
 
                         onTriggered: {
@@ -229,8 +222,8 @@ HeaderButton {
             }
 
             Component.onCompleted: {
-                foldersMenuLoader.openMenu = open
-                foldersMenuLoader.closeMenu = close
+                foldersMenuLoader.openMenu = function() { open() }
+                foldersMenuLoader.closeMenu = function() { close() }
             }
 
             Connections {

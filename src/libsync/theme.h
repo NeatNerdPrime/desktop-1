@@ -67,6 +67,7 @@ class OWNCLOUDSYNC_EXPORT Theme : public QObject
 
     Q_PROPERTY(QColor defaultColor READ defaultColor CONSTANT)
 
+    Q_PROPERTY(QVariantMap systemPalette READ systemPalette NOTIFY systemPaletteChanged)
     Q_PROPERTY(bool darkMode READ darkMode NOTIFY darkModeChanged)
 public:
     enum CustomMediaType {
@@ -232,10 +233,17 @@ public:
 
     /**
      * Setting a value here will pre-define the server url.
+     * Can be a url OR a JSON array of servers description objects: {"name": "x", "url": "y"}
      *
      * The respective UI controls will be disabled only if forceOverrideServerUrl() is true
      */
     [[nodiscard]] QString overrideServerUrl() const;
+
+    /**
+     * Indicates whether the override server URL is in fact a JSON array of server description
+     * objects.
+     */
+    [[nodiscard]] bool multipleOverrideServers() const;
 
     /**
      * Enforce a pre-defined server url.
@@ -593,13 +601,22 @@ public:
 
     static constexpr const char *themePrefix = ":/client/theme/";
 
-    bool darkMode();
+    [[nodiscard]] QVariantMap systemPalette() const;
+    [[nodiscard]] bool darkMode() const;
+
+    /**
+     * Display legacy import dialog
+     *
+     * The user will interact with the dialog to import legacy account when set to true
+     */
+    [[nodiscard]] bool displayLegacyImportDialog() const;
 
 public slots:
     void setOverrideServerUrl(const QString &overrideServerUrl);
     void setForceOverrideServerUrl(bool forceOverride);
     void setVfsEnabled(bool enabled);
     void setStartLoginFlowAutomatically(bool startLoginFlowAuto);
+    void systemPaletteHasChanged();
 
 protected:
 #ifndef TOKEN_AUTH_ONLY
@@ -617,6 +634,7 @@ protected:
 
 signals:
     void systrayUseMonoIconsChanged(bool);
+    void systemPaletteChanged(const QPalette &palette);
     void darkModeChanged();
     void overrideServerUrlChanged();
     void forceOverrideServerUrlChanged();
@@ -627,17 +645,18 @@ private:
     Theme(Theme const &);
     Theme &operator=(Theme const &);
 
-    void connectToPaletteSignal();
+    void updateMultipleOverrideServers();
+    void connectToPaletteSignal() const;
 #if defined(Q_OS_WIN)
     QPalette reserveDarkPalette; // Windows 11 button and window dark colours
 #endif
 
     static Theme *_instance;
     bool _mono = false;
-    bool _paletteSignalsConnected = false;
 
     QString _overrideServerUrl;
     bool _forceOverrideServerUrl = false;
+    bool _multipleOverrideServers = false;
     bool _isVfsEnabled = false;
     bool _startLoginFlowAutomatically = false;
 

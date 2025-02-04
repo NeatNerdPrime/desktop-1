@@ -14,14 +14,22 @@
 
 import Foundation
 
+weak var globalTaskRef: Process?
+
 @discardableResult
 func run(
     _ launchPath: String,
     _ args: [String],
     env: [String: String]? = nil,
-    quiet: Bool = false
+    quiet: Bool = false,
+    task: Process = Process()
 ) -> Int32 {
-    let task = Process()
+    globalTaskRef = task
+    signal(SIGINT) { _ in
+        globalTaskRef?.terminate()  // Send terminate signal to the task
+        exit(0)           // Exit the script after cleanup
+    }
+
     task.launchPath = launchPath
     task.arguments = args
 

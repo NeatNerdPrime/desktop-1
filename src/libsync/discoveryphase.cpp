@@ -348,6 +348,7 @@ void DiscoverySingleLocalDirectoryJob::run() {
         i.isSymLink = dirent->type == ItemTypeSoftLink;
         i.isVirtualFile = dirent->type == ItemTypeVirtualFile || dirent->type == ItemTypeVirtualFileDownload;
         i.isMetadataMissing = dirent->is_metadata_missing;
+        i.isPermissionsInvalid = dirent->isPermissionsInvalid;
         i.type = dirent->type;
         results.push_back(i);
     }
@@ -400,7 +401,8 @@ void DiscoverySingleDirectoryJob::start()
           << "http://owncloud.org/ns:dDC"
           << "http://owncloud.org/ns:permissions"
           << "http://owncloud.org/ns:checksums"
-          << "http://nextcloud.org/ns:is-encrypted";
+          << "http://nextcloud.org/ns:is-encrypted"
+          << "http://nextcloud.org/ns:metadata-files-live-photo";
 
     if (_isRootPath)
         props << "http://owncloud.org/ns:data-fingerprint";
@@ -415,7 +417,8 @@ void DiscoverySingleDirectoryJob::start()
               << "http://nextcloud.org/ns:lock-owner-type"
               << "http://nextcloud.org/ns:lock-owner-editor"
               << "http://nextcloud.org/ns:lock-time"
-              << "http://nextcloud.org/ns:lock-timeout";
+              << "http://nextcloud.org/ns:lock-timeout"
+              << "http://nextcloud.org/ns:lock-token";
     }
     props << "http://nextcloud.org/ns:is-mount-root";
 
@@ -467,7 +470,6 @@ static void propertyMapToRemoteInfo(const QMap<QString, QString> &map, RemotePer
         } else if (property == QLatin1String("getlastmodified")) {
             value.replace("GMT", "+0000");
             const auto date = QDateTime::fromString(value, Qt::RFC2822Date);
-            qCInfo(lcDiscovery()) << value << date << date.isValid() << QDateTime::currentDateTime().toString(Qt::RFC2822Date);
             Q_ASSERT(date.isValid());
             result.modtime = 0;
             if (date.toSecsSinceEpoch() > 0) {
@@ -547,7 +549,13 @@ static void propertyMapToRemoteInfo(const QMap<QString, QString> &map, RemotePer
                 result.lockTimeout = 0;
             }
         }
-
+        if (property == "lock-token") {
+            result.lockToken = value;
+        }
+        if (property == "metadata-files-live-photo") {
+            result.livePhotoFile = value;
+            result.isLivePhoto = true;
+        }
     }
 
     if (result.isDirectory && map.contains("size")) {
@@ -564,7 +572,6 @@ void DiscoverySingleDirectoryJob::directoryListingIteratedSlot(const QString &fi
             auto perm = RemotePermissions::fromServerString(map.value("permissions"),
                                                             _account->serverHasMountRootProperty() ? RemotePermissions::MountedPermissionAlgorithm::UseMountRootProperty : RemotePermissions::MountedPermissionAlgorithm::WildGuessMountedSubProperty,
                                                             map);
-            qCInfo(lcDiscovery()) << file << map.value("permissions") << map;
             emit firstDirectoryPermissions(perm);
             _isExternalStorage = perm.hasPermission(RemotePermissions::IsMounted);
         }
@@ -599,7 +606,6 @@ void DiscoverySingleDirectoryJob::directoryListingIteratedSlot(const QString &fi
         if (result.isDirectory)
             result.size = 0;
 
-        qCInfo(lcDiscovery()) << file << map.value("permissions") << result.remotePerm.toString() << map;
         _results.push_back(std::move(result));
     }
 
@@ -652,6 +658,10 @@ void DiscoverySingleDirectoryJob::lsJobFinishedWithErrorSlot(QNetworkReply *r)
         msg = tr("Server error: PROPFIND reply is not XML formatted!");
     }
 
+    if (r->error() == QNetworkReply::ContentAccessDenied) {
+        emit _account->termsOfServiceNeedToBeChecked();
+    }
+
     emit finished(HttpError{ httpCode, msg });
     deleteLater();
 }
@@ -694,6 +704,14 @@ void DiscoverySingleDirectoryJob::metadataReceived(const QJsonDocument &json, in
             topLevelFolderPath = topLevelPathSplit.join(QLatin1Char('/'));
             break;
         }
+    }
+
+    if (job->signature().isEmpty()) {
+        qCDebug(lcDiscovery) << "Initial signature is empty.";
+        _account->reportClientStatus(OCC::ClientStatusReportingStatus::E2EeError_GeneralError);
+        emit finished(HttpError{0, tr("Encrypted metadata setup error: initial signature from server is empty.")});
+        deleteLater();
+        return;
     }
 
     const auto e2EeFolderMetadata = new FolderMetadata(_account,

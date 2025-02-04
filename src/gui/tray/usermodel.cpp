@@ -184,7 +184,7 @@ void User::showDesktopTalkNotification(const Activity &activity)
 {
     const auto notificationId = activity._id;
 
-    if (!canShowNotification(notificationId)) {
+    if (!canShowNotification(notificationId) || !ConfigFile().showChatNotifications()) {
         return;
     }
 
@@ -236,7 +236,7 @@ void User::slotBuildNotificationDisplay(const ActivityList &list)
         return;
     }
 
-    for (const auto &activity : qAsConst(toNotifyList)) {
+    for (const auto &activity : std::as_const(toNotifyList)) {
         if (activity._objectType == QStringLiteral("chat")) {
             showDesktopTalkNotification(activity);
         } else {
@@ -339,15 +339,22 @@ void User::parseNewGroupFolderPath(const QString &mountPoint)
     if (mountPoint.isEmpty()) {
         return;
     }
-    auto mountPointSplit = mountPoint.split(QLatin1Char('/'), Qt::SkipEmptyParts);
+
+    auto sanitisedMountPoint = mountPoint;
+    sanitisedMountPoint.replace("//", "/");
+    auto mountPointSplit = sanitisedMountPoint.split('/', Qt::SkipEmptyParts);
 
     if (mountPointSplit.isEmpty()) {
         return;
     }
 
     const auto groupFolderName = mountPointSplit.takeLast();
-    const auto parentPath = mountPointSplit.join(QLatin1Char('/'));
-    _trayFolderInfos.push_back(QVariant::fromValue(TrayFolderInfo{groupFolderName, parentPath, mountPoint, TrayFolderInfo::GroupFolder}));
+    const auto parentPath = mountPointSplit.join('/');
+    const auto folderInfo = TrayFolderInfo(
+        groupFolderName, parentPath, sanitisedMountPoint, TrayFolderInfo::GroupFolder
+    );
+    const auto folderInfoVariant = QVariant::fromValue(folderInfo);
+    _trayFolderInfos.push_back(folderInfoVariant);
 }
 
 void User::prePendGroupFoldersWithLocalFolder()
@@ -804,7 +811,7 @@ void User::processCompletedSyncItem(const Folder *folder, const SyncFileItemPtr 
     activity._fileAction = fileActionFromInstruction(item->_instruction);
 
     if (item->_status == SyncFileItem::NoStatus || item->_status == SyncFileItem::Success) {
-        qCWarning(lcActivity) << "Item " << item->_file << " retrieved successfully.";
+        qCDebug(lcActivity) << "Item " << item->_file << " retrieved successfully.";
 
         if (item->_direction != SyncFileItem::Up) {
             activity._message = QObject::tr("Synced %1").arg(fileName);
@@ -839,7 +846,7 @@ void User::processCompletedSyncItem(const Folder *folder, const SyncFileItemPtr 
 
         _activityModel->addSyncFileItemToActivityList(activity);
     } else {
-        qCWarning(lcActivity) << "Item " << item->_file << " retrieved resulted in error " << item->_errorString;
+        qCInfo(lcActivity) << "Item " << item->_file << " retrieved resulted in error " << item->_errorString;
 
         activity._subject = item->_errorString;
         activity._id = -static_cast<int>(qHash(activity._subject + activity._message));
@@ -885,7 +892,7 @@ void User::slotItemCompleted(const QString &folder, const SyncFileItemPtr &item)
         return;
     }
 
-    qCWarning(lcActivity) << "Item " << item->_file << " retrieved resulted in " << item->_errorString;
+    qCDebug(lcActivity) << "Item " << item->_file << " retrieved resulted in " << item->_errorString;
     processCompletedSyncItem(folderInstance, item);
 }
 
@@ -906,7 +913,7 @@ void User::setCurrentUser(const bool &isCurrent)
 
 Folder *User::getFolder() const
 {
-    foreach (Folder *folder, FolderMan::instance()->map()) {
+    for (const auto &folder : FolderMan::instance()->map()) {
         if (folder->accountState() == _account.data()) {
             return folder;
         }
@@ -925,11 +932,9 @@ UnifiedSearchResultsListModel *User::getUnifiedSearchResultsListModel() const
     return _unifiedSearchResultsModel;
 }
 
-void User::openLocalFolder()
+void User::openLocalFolder() const
 {
-    const auto folder = getFolder();
-
-    if (folder) {
+    if (const auto folder = getFolder()) {
         QDesktopServices::openUrl(QUrl::fromLocalFile(folder->path()));
     }
 }
@@ -1303,7 +1308,7 @@ QString UserModel::currentUserServer()
 void UserModel::addUser(AccountStatePtr &user, const bool &isCurrent)
 {
     bool containsUser = false;
-    for (const auto &u : qAsConst(_users)) {
+    for (const auto &u : std::as_const(_users)) {
         if (u->account() == user->account()) {
             containsUser = true;
             continue;
@@ -1419,7 +1424,7 @@ void UserModel::setCurrentUserId(const int id)
 
     const auto isCurrentUserChanged = !_users[id]->isCurrentUser();
     if (isCurrentUserChanged) {
-        for (const auto user : qAsConst(_users)) {
+        for (const auto user : std::as_const(_users)) {
             user->setCurrentUser(false);
         }
         _users[id]->setCurrentUser(true);
@@ -1613,35 +1618,82 @@ int UserModel::findUserIdForAccount(AccountState *account) const
 }
 /*-------------------------------------------------------------------------------------*/
 
-ImageProvider::ImageProvider()
-    : QQuickImageProvider(QQuickImageProvider::Image)
+class ImageResponse : public QQuickImageResponse
 {
-}
+public:
+    ImageResponse(const QString &id, const QSize &requestedSize, QThreadPool *pool)
+    {
+        Q_UNUSED(pool)
 
-QImage ImageProvider::requestImage(const QString &id, QSize *size, const QSize &requestedSize)
-{
-    Q_UNUSED(size)
-    Q_UNUSED(requestedSize)
+        const auto makeIcon = [](const QString &path) {
+            QImage image(128, 128, QImage::Format_ARGB32);
+            image.fill(Qt::GlobalColor::transparent);
+            QPainter painter(&image);
+            QSvgRenderer renderer(path);
+            renderer.render(&painter);
+            return image;
+        };
 
-    const auto makeIcon = [](const QString &path) {
-        QImage image(128, 128, QImage::Format_ARGB32);
-        image.fill(Qt::GlobalColor::transparent);
-        QPainter painter(&image);
-        QSvgRenderer renderer(path);
-        renderer.render(&painter);
-        return image;
-    };
+        if (id == QLatin1String("fallbackWhite")) {
+            handleDone(makeIcon(QStringLiteral(":/client/theme/white/user.svg")));
+            return;
+        } else if (id == QLatin1String("fallbackBlack")) {
+            handleDone(makeIcon(QStringLiteral(":/client/theme/black/user.svg")));
+            return;
+        }
 
-    if (id == QLatin1String("fallbackWhite")) {
-        return makeIcon(QStringLiteral(":/client/theme/white/user.svg"));
+        if (id.startsWith("user-id=")) {
+            // Format is "image://avatars/user-id=avatar-requested-user/local-user-id:0"
+            const auto userIdsString = id.split('=');
+            const auto userIds = userIdsString.last().split("/local-account:");
+            const auto avatarUserId = userIds.first();
+            const auto accountString = userIds.last();
+            const auto accountState = AccountManager::instance()->account(accountString);
+            Q_ASSERT(accountState);
+            Q_ASSERT(accountState->account());
+            if (!accountState || !accountState->account()) {
+                qCWarning(lcActivity) << "Invalid account:" << accountString;
+                return;
+            }
+
+            const auto account = accountState->account();
+            const auto qnam = account->networkAccessManager();
+
+            QMetaObject::invokeMethod(qnam, [this, requestedSize, avatarUserId, account]() {
+                const auto avatarSize = requestedSize.width() > 0 ? requestedSize.width() : 64;
+                const auto avatarJob = new AvatarJob(account, avatarUserId, avatarSize);
+                connect(avatarJob, &AvatarJob::avatarPixmap, this, [&](const QImage &avatarImg) {
+                    QMetaObject::invokeMethod(this, [this, avatarImg] {
+                        handleDone(AvatarJob::makeCircularAvatar(avatarImg));
+                    });
+                });
+                avatarJob->start();
+            });
+            return;
+        }
+
+        handleDone(UserModel::instance()->avatarById(id.toInt()));
     }
 
-    if (id == QLatin1String("fallbackBlack")) {
-        return makeIcon(QStringLiteral(":/client/theme/black/user.svg"));
+    void handleDone(const QImage &image)
+    {
+        _image = image;
+        emit finished();
     }
 
-    const int uid = id.toInt();
-    return UserModel::instance()->avatarById(uid);
+    QQuickTextureFactory *textureFactory() const override
+    {
+        return QQuickTextureFactory::textureFactoryForImage(_image);
+    }
+
+private:
+    QImage _image;
+};
+
+QQuickImageResponse *ImageProvider::requestImageResponse(const QString &id, const QSize &requestedSize)
+{
+    const auto response = new class ImageResponse(id, requestedSize, &_pool);
+    return response;
 }
 
 /*-------------------------------------------------------------------------------------*/
@@ -1720,3 +1772,4 @@ QHash<int, QByteArray> UserAppsModel::roleNames() const
     return roles;
 }
 }
+

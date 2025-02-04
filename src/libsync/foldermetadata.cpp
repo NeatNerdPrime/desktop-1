@@ -181,6 +181,12 @@ void FolderMetadata::setupExistingMetadata(const QByteArray &metadata)
         }
     }
 
+    if (_initialSignature.isEmpty()) {
+        qCDebug(lcCseMetadata()) << "Signature is empty";
+        _account->reportClientStatus(OCC::ClientStatusReportingStatus::E2EeError_GeneralError);
+        return;
+    }
+
     if (!parseFileDropPart(metaDataDoc)) {
         qCDebug(lcCseMetadata()) << "Could not parse filedrop part";
         return;
@@ -394,11 +400,11 @@ void FolderMetadata::setupVersionFromExistingMetadata(const QByteArray &metadata
     }
     else if (metaDataDoc.object().contains(versionKey)) {
         const auto metadataVersionValue = metaDataDoc.object()[versionKey].toVariant();
-        if (metadataVersionValue.type() == QVariant::Type::String) {
+        if (metadataVersionValue.metaType() == QMetaType(QMetaType::QString)) {
             versionStringFromMetadata = metadataVersionValue.toString();
-        } else if (metadataVersionValue.type() == QVariant::Type::Double) {
+        } else if (metadataVersionValue.metaType() == QMetaType(QMetaType::Double)) {
             versionStringFromMetadata = QString::number(metadataVersionValue.toDouble(), 'f', 1);
-        } else if (metadataVersionValue.type() == QVariant::Type::Int) {
+        } else if (metadataVersionValue.metaType() == QMetaType(QMetaType::Int)) {
             versionStringFromMetadata = QString::number(metadataVersionValue.toInt()) + QStringLiteral(".0");
         }
     }

@@ -1236,7 +1236,7 @@ bool PropagatorCompositeJob::scheduleSelfOrChild()
     }
 
     // Ask all the running composite jobs if they have something new to schedule.
-    for (auto runningJob : qAsConst(_runningJobs)) {
+    for (auto runningJob : std::as_const(_runningJobs)) {
         ASSERT(runningJob->_state == Running);
 
         if (possiblyRunNextJob(runningJob)) {
@@ -1352,7 +1352,7 @@ PropagateDirectory::PropagateDirectory(OwncloudPropagator *propagator, const Syn
     , _subJobs(propagator)
 {
     if (_firstJob) {
-        connect(_firstJob.data(), &PropagatorJob::finished, this, &PropagateDirectory::slotFirstJobFinished);
+        connect(_firstJob.get(), &PropagatorJob::finished, this, &PropagateDirectory::slotFirstJobFinished);
         _firstJob->setAssociatedComposite(&_subJobs);
     }
     connect(&_subJobs, &PropagatorJob::finished, this, &PropagateDirectory::slotSubJobsFinished);
@@ -1395,7 +1395,7 @@ bool PropagateDirectory::scheduleSelfOrChild()
 
 void PropagateDirectory::slotFirstJobFinished(SyncFileItem::Status status)
 {
-    _firstJob.take()->deleteLater();
+    _firstJob.release()->deleteLater();
 
     if (status != SyncFileItem::Success
         && status != SyncFileItem::Restoration
@@ -1425,7 +1425,7 @@ void PropagateDirectory::slotSubJobsFinished(SyncFileItem::Status status)
                 qCWarning(lcDirectory) << "could not delete file from local DB" << _item->_originalFile;
                 _state = Finished;
                 status = _item->_status = SyncFileItem::FatalError;
-                _item->_errorString = tr("could not delete file %1 from local DB").arg(_item->_originalFile);
+                _item->_errorString = tr("Could not delete file %1 from local DB").arg(_item->_originalFile);
                 qCInfo(lcPropagator) << "PropagateDirectory::slotSubJobsFinished"
                                      << "emit finished" << status;
                 emit finished(status);
@@ -1457,21 +1457,13 @@ void PropagateDirectory::slotSubJobsFinished(SyncFileItem::Status status)
 #if !defined(Q_OS_MACOS) || __MAC_OS_X_VERSION_MIN_REQUIRED >= MAC_OS_X_VERSION_10_15
             if (!_item->_remotePerm.isNull() &&
                 !_item->_remotePerm.hasPermission(RemotePermissions::CanAddFile) &&
-                !_item->_remotePerm.hasPermission(RemotePermissions::CanRename) &&
-                !_item->_remotePerm.hasPermission(RemotePermissions::CanMove) &&
                 !_item->_remotePerm.hasPermission(RemotePermissions::CanAddSubDirectories)) {
                 try {
                     if (FileSystem::fileExists(propagator()->fullLocalPath(_item->_file))) {
                         FileSystem::setFolderPermissions(propagator()->fullLocalPath(_item->_file), FileSystem::FolderPermissions::ReadOnly);
-                        qCDebug(lcDirectory) << "old permissions" << static_cast<int>(std::filesystem::status(propagator()->fullLocalPath(_item->_file).toStdWString()).permissions());
-                        std::filesystem::permissions(propagator()->fullLocalPath(_item->_file).toStdWString(), std::filesystem::perms::owner_write | std::filesystem::perms::group_write | std::filesystem::perms::others_write, std::filesystem::perm_options::remove);
-                        qCDebug(lcDirectory) << "new permissions" << static_cast<int>(std::filesystem::status(propagator()->fullLocalPath(_item->_file).toStdWString()).permissions());
                     }
                     if (!_item->_renameTarget.isEmpty() && FileSystem::fileExists(propagator()->fullLocalPath(_item->_renameTarget))) {
                         FileSystem::setFolderPermissions(propagator()->fullLocalPath(_item->_renameTarget), FileSystem::FolderPermissions::ReadOnly);
-                        qCDebug(lcDirectory) << "old permissions" << static_cast<int>(std::filesystem::status(propagator()->fullLocalPath(_item->_renameTarget).toStdWString()).permissions());
-                        std::filesystem::permissions(propagator()->fullLocalPath(_item->_renameTarget).toStdWString(), std::filesystem::perms::owner_write | std::filesystem::perms::group_write | std::filesystem::perms::others_write, std::filesystem::perm_options::remove);
-                        qCDebug(lcDirectory) << "new permissions" << static_cast<int>(std::filesystem::status(propagator()->fullLocalPath(_item->_renameTarget).toStdWString()).permissions());
                     }
                 }
                 catch (const std::filesystem::filesystem_error &e)
@@ -1480,23 +1472,32 @@ void PropagateDirectory::slotSubJobsFinished(SyncFileItem::Status status)
                     _item->_status = SyncFileItem::NormalError;
                     _item->_errorString = tr("The folder %1 cannot be made read-only: %2").arg(_item->_file, e.what());
                 }
-            } else if (!_item->_remotePerm.isNull() &&
-                       (_item->_remotePerm.hasPermission(RemotePermissions::CanAddFile) ||
-                        !_item->_remotePerm.hasPermission(RemotePermissions::CanRename) ||
-                        !_item->_remotePerm.hasPermission(RemotePermissions::CanMove) ||
-                        !_item->_remotePerm.hasPermission(RemotePermissions::CanAddSubDirectories))) {
+                catch (const std::system_error &e)
+                {
+                    qCWarning(lcDirectory) << "exception when checking parent folder access rights" << e.what();
+                    _item->_status = SyncFileItem::NormalError;
+                    _item->_errorString = tr("The folder %1 cannot be made read-only: %2").arg(_item->_file, e.what());
+                }
+                catch (...)
+                {
+                    qCWarning(lcDirectory) << "exception when checking parent folder access rights";
+                    _item->_status = SyncFileItem::NormalError;
+                    _item->_errorString = tr("The folder %1 cannot be made read-only: %2").arg(_item->_file, tr("unknown exception"));
+                }
+            } else {
                 try {
-                    if (FileSystem::fileExists(propagator()->fullLocalPath(_item->_file))) {
-                        FileSystem::setFolderPermissions(propagator()->fullLocalPath(_item->_file), FileSystem::FolderPermissions::ReadWrite);
-                        qCDebug(lcDirectory) << "old permissions" << static_cast<int>(std::filesystem::status(propagator()->fullLocalPath(_item->_file).toStdWString()).permissions());
-                        std::filesystem::permissions(propagator()->fullLocalPath(_item->_file).toStdWString(), std::filesystem::perms::owner_write, std::filesystem::perm_options::add);
-                        qCDebug(lcDirectory) << "new permissions" << static_cast<int>(std::filesystem::status(propagator()->fullLocalPath(_item->_file).toStdWString()).permissions());
+                    const auto permissionsChangeHelper = [] (const auto fileName)
+                    {
+                        qCDebug(lcDirectory) << fileName << "permissions changed: old permissions" << static_cast<int>(std::filesystem::status(fileName.toStdWString()).permissions());
+                        FileSystem::setFolderPermissions(fileName, FileSystem::FolderPermissions::ReadWrite);
+                        qCDebug(lcDirectory) << fileName << "applied new permissions" << static_cast<int>(std::filesystem::status(fileName.toStdWString()).permissions());
+                    };
+
+                    if (const auto fileName = propagator()->fullLocalPath(_item->_file); FileSystem::fileExists(fileName)) {
+                        permissionsChangeHelper(fileName);
                     }
-                    if (!_item->_renameTarget.isEmpty() && FileSystem::fileExists(propagator()->fullLocalPath(_item->_renameTarget))) {
-                        FileSystem::setFolderPermissions(propagator()->fullLocalPath(_item->_renameTarget), FileSystem::FolderPermissions::ReadWrite);
-                        qCDebug(lcDirectory) << "old permissions" << static_cast<int>(std::filesystem::status(propagator()->fullLocalPath(_item->_renameTarget).toStdWString()).permissions());
-                        std::filesystem::permissions(propagator()->fullLocalPath(_item->_renameTarget).toStdWString(), std::filesystem::perms::owner_write, std::filesystem::perm_options::add);
-                        qCDebug(lcDirectory) << "new permissions" << static_cast<int>(std::filesystem::status(propagator()->fullLocalPath(_item->_renameTarget).toStdWString()).permissions());
+                    if (const auto fileName = propagator()->fullLocalPath(_item->_renameTarget); !_item->_renameTarget.isEmpty() && FileSystem::fileExists(fileName)) {
+                        permissionsChangeHelper(fileName);
                     }
                 }
                 catch (const std::filesystem::filesystem_error &e)
@@ -1504,6 +1505,18 @@ void PropagateDirectory::slotSubJobsFinished(SyncFileItem::Status status)
                     qCWarning(lcDirectory) << "exception when checking parent folder access rights" << e.what() << e.path1().c_str() << e.path2().c_str();
                     _item->_status = SyncFileItem::NormalError;
                     _item->_errorString = tr("The folder %1 cannot be made read-only: %2").arg(e.path1().c_str(), e.what());
+                }
+                catch (const std::system_error &e)
+                {
+                    qCWarning(lcDirectory) << "exception when checking parent folder access rights" << e.what();
+                    _item->_status = SyncFileItem::NormalError;
+                    _item->_errorString = tr("The folder %1 cannot be made read-only: %2").arg("", e.what());
+                }
+                catch (...)
+                {
+                    qCWarning(lcDirectory) << "exception when checking parent folder access rights";
+                    _item->_status = SyncFileItem::NormalError;
+                    _item->_errorString = tr("The folder %1 cannot be made read-only: %2").arg("", tr("unknown exception"));
                 }
             }
 #endif
@@ -1521,7 +1534,6 @@ void PropagateDirectory::slotSubJobsFinished(SyncFileItem::Status status)
         }
     }
     _state = Finished;
-    qCInfo(lcPropagator) << "PropagateDirectory::slotSubJobsFinished" << "emit finished" << status << _item->_file;
     emit finished(status);
 }
 
@@ -1579,8 +1591,6 @@ void PropagateRootDirectory::appendDirDeletionJob(PropagatorJob *job)
 
 bool PropagateRootDirectory::scheduleSelfOrChild()
 {
-    qCInfo(lcRootDirectory()) << "scheduleSelfOrChild" << _state << "pending uploads" << propagator()->delayedTasks().size() << "subjobs state" << _subJobs._state;
-
     if (_state == Finished) {
         return false;
     }
@@ -1603,8 +1613,6 @@ bool PropagateRootDirectory::scheduleSelfOrChild()
 
 void PropagateRootDirectory::slotSubJobsFinished(SyncFileItem::Status status)
 {
-    qCInfo(lcRootDirectory()) << status << "slotSubJobsFinished" << _state << "pending uploads" << propagator()->delayedTasks().size() << "subjobs state" << _subJobs._state;
-
     if (!propagator()->delayedTasks().empty()) {
         scheduleDelayedJobs();
         return;
@@ -1619,7 +1627,6 @@ void PropagateRootDirectory::slotSubJobsFinished(SyncFileItem::Status status)
             // Synchronously abort
             abort(AbortType::Synchronous);
             _state = Finished;
-            qCInfo(lcPropagator) << "PropagateRootDirectory::slotSubJobsFinished" << "emit finished" << status;
             emit finished(status);
         }
         return;
@@ -1653,18 +1660,15 @@ void PropagateRootDirectory::slotSubJobsFinished(SyncFileItem::Status status)
 void PropagateRootDirectory::slotDirDeletionJobsFinished(SyncFileItem::Status status)
 {
     if (_errorStatus != SyncFileItem::NoStatus && status == SyncFileItem::Success) {
-        qCInfo(lcPropagator) << "PropagateRootDirectory::slotDirDeletionJobsFinished" << "reporting previous error" << _errorStatus;
         status = _errorStatus;
     }
 
     _state = Finished;
-    qCInfo(lcPropagator) << "PropagateRootDirectory::slotDirDeletionJobsFinished" << "emit finished" << status;
     emit finished(status);
 }
 
 bool PropagateRootDirectory::scheduleDelayedJobs()
 {
-    qCInfo(lcPropagator) << "PropagateRootDirectory::scheduleDelayedJobs";
     propagator()->setScheduleDelayedTasks(true);
     auto bulkPropagatorJob = std::make_unique<BulkPropagatorJob>(propagator(), propagator()->delayedTasks());
     propagator()->clearDelayedTasks();

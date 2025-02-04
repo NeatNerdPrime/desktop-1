@@ -41,7 +41,7 @@ bool expectConflict(FileInfo state, const QString path)
     auto base = state.find(pathComponents.parentDirComponents());
     if (!base)
         return false;
-    for (const auto &item : qAsConst(base->children)) {
+    for (const auto &item : std::as_const(base->children)) {
         if (item.name.startsWith(pathComponents.fileName()) && item.name.contains("(case clash from")) {
             return true;
         }
@@ -432,7 +432,7 @@ private slots:
 
         QTest::newRow("Same mtime, but no server checksum -> ignored in reconcile")
             << true << QByteArray()
-            << 0;
+            << 1;
 
         QTest::newRow("Same mtime, weak server checksum differ -> downloaded")
             << true << QByteArray("Adler32:bad")
@@ -721,7 +721,7 @@ private slots:
         // Begin Test mismatch recalculation---------------------------------------------------------------------------------
 
         const auto prevServerVersion = fakeFolder.account()->serverVersion();
-        fakeFolder.account()->setServerVersion(QString("%1.0.0").arg(fakeFolder.account()->checksumRecalculateServerVersionMinSupportedMajor()));
+        fakeFolder.account()->setServerVersion(QStringLiteral("%1.0.0").arg(fakeFolder.account()->checksumRecalculateServerVersionMinSupportedMajor()));
 
         // Mismatched OC-Checksum and X-Recalculate-Hash is not supported -> sync must fail
         isChecksumRecalculateSupported = false;
@@ -860,6 +860,14 @@ private slots:
         {
             qCritical() << e.what() << e.path1().c_str() << e.path2().c_str() << e.code().message().c_str();
         }
+        catch (const std::system_error &e)
+        {
+            qCritical() << e.what() << e.code().message().c_str();
+        }
+        catch (...)
+        {
+            qCritical() << "exception unknown";
+        }
         QTextCodec::setCodecForLocale(utf8Locale);
 #endif
     }
@@ -984,15 +992,17 @@ private slots:
             if (op == QNetworkAccessManager::PostOperation) {
                 ++nPOST;
                 if (contentType.startsWith(QStringLiteral("multipart/related; boundary="))) {
-                    auto jsonReplyObject = fakeFolder.forEachReplyPart(outgoingData, contentType, [] (const QMap<QString, QByteArray> &allHeaders) -> QJsonObject {
+                    auto hasAnError = false;
+                    auto jsonReplyObject = fakeFolder.forEachReplyPart(outgoingData, contentType, [&hasAnError] (const QMap<QString, QByteArray> &allHeaders) -> QJsonObject {
                         auto reply = QJsonObject{};
-                        const auto fileName = allHeaders[QStringLiteral("X-File-Path")];
+                        const auto fileName = allHeaders[QStringLiteral("x-file-path")];
                         if (fileName.endsWith("A/big2") ||
                                 fileName.endsWith("A/big3") ||
                                 fileName.endsWith("A/big4") ||
                                 fileName.endsWith("A/big5") ||
                                 fileName.endsWith("A/big7") ||
                                 fileName.endsWith("B/big8")) {
+                            hasAnError = true;
                             reply.insert(QStringLiteral("error"), true);
                             reply.insert(QStringLiteral("etag"), {});
                             return reply;
@@ -1005,7 +1015,11 @@ private slots:
                     if (jsonReplyObject.size()) {
                         auto jsonReply = QJsonDocument{};
                         jsonReply.setObject(jsonReplyObject);
-                        return new FakeJsonErrorReply{op, request, this, 200, jsonReply};
+                        if (hasAnError) {
+                            return new FakeJsonErrorReply{op, request, this, 200, jsonReply};
+                        } else {
+                            return new FakeJsonReply{op, request, this, 200, jsonReply};
+                        }
                     }
                     return  nullptr;
                 }
@@ -1978,6 +1992,48 @@ private slots:
         QCOMPARE(fakeFolder.remoteModifier().find("folder"), nullptr);
         QCOMPARE(fakeFolder.remoteModifier().find("folder2"), nullptr);
         QCOMPARE(fakeFolder.remoteModifier().find("file1"), nullptr);
+    }
+
+    void testSyncReadOnlyLnkWindowsShortcuts()
+    {
+        FakeFolder fakeFolder{FileInfo{}};
+        auto nextcloudCmdSyncOptions = fakeFolder.syncEngine().syncOptions();
+
+        fakeFolder.remoteModifier().mkdir("abcdefabcdefabcdefabcdefabcdefabcd");
+        fakeFolder.remoteModifier().mkdir("abcdefabcdefabcdefabcdefabcdefabcd/abcdef abcdef abcdef a");
+        fakeFolder.remoteModifier().mkdir("abcdefabcdefabcdefabcdefabcdefabcd/abcdef abcdef abcdef a/abcdef abcdef");
+        fakeFolder.remoteModifier().mkdir("abcdefabcdefabcdefabcdefabcdefabcd/abcdef abcdef abcdef a/abcdef abcdef/abcdef acbdef abcd");
+        fakeFolder.remoteModifier().mkdir("abcdefabcdefabcdefabcdefabcdefabcd/abcdef abcdef abcdef a/abcdef abcdef/abcdef acbdef abcd/123abcdefabcdef1");
+        fakeFolder.remoteModifier().mkdir("abcdefabcdefabcdefabcdefabcdefabcd/abcdef abcdef abcdef a/abcdef abcdef/abcdef acbdef abcd/123abcdefabcdef1/123123abcdef123 abcdef1");
+        fakeFolder.remoteModifier().mkdir("abcdefabcdefabcdefabcdefabcdefabcd/abcdef abcdef abcdef a/abcdef abcdef/abcdef acbdef abcd/123abcdefabcdef1/123123abcdef123 abcdef1/12abcabc");
+        fakeFolder.remoteModifier().mkdir("abcdefabcdefabcdefabcdefabcdefabcd/abcdef abcdef abcdef a/abcdef abcdef/abcdef acbdef abcd/123abcdefabcdef1/123123abcdef123 abcdef1/12abcabc/12abcabd");
+        fakeFolder.remoteModifier().insert("abcdefabcdefabcdefabcdefabcdefabcd/abcdef abcdef abcdef a/abcdef abcdef/abcdef acbdef abcd/123abcdefabcdef1/123123abcdef123 abcdef1/12abcabc/12abcabd/this is a long long long long long long long long long long long long long long long long l.docx - Sh.lnk");
+
+        fakeFolder.remoteModifier().mkdir("folder");
+        fakeFolder.remoteModifier().insert("folder/file1.lnk");
+        fakeFolder.remoteModifier().insert("folder/file2.lnk");
+        fakeFolder.remoteModifier().insert("folder/file3.lnk");
+        fakeFolder.remoteModifier().mkdir("folder2");
+        fakeFolder.remoteModifier().insert("file1");
+        fakeFolder.remoteModifier().insert("file2");
+        fakeFolder.remoteModifier().insert("file3");
+
+        fakeFolder.remoteModifier().find("folder")->permissions = RemotePermissions::fromServerString("DNVS");
+        fakeFolder.remoteModifier().find("folder/file1.lnk")->permissions = RemotePermissions::fromServerString("S");
+        fakeFolder.remoteModifier().find("folder/file2.lnk")->permissions = RemotePermissions::fromServerString("S");
+        fakeFolder.remoteModifier().find("folder/file3.lnk")->permissions = RemotePermissions::fromServerString("S");
+
+        fakeFolder.remoteModifier().find("abcdefabcdefabcdefabcdefabcdefabcd")->permissions = RemotePermissions::fromServerString("DNVS");
+        fakeFolder.remoteModifier().find("abcdefabcdefabcdefabcdefabcdefabcd/abcdef abcdef abcdef a")->permissions = RemotePermissions::fromServerString("DNVS");
+        fakeFolder.remoteModifier().find("abcdefabcdefabcdefabcdefabcdefabcd/abcdef abcdef abcdef a/abcdef abcdef")->permissions = RemotePermissions::fromServerString("DNVS");
+        fakeFolder.remoteModifier().find("abcdefabcdefabcdefabcdefabcdefabcd/abcdef abcdef abcdef a/abcdef abcdef/abcdef acbdef abcd")->permissions = RemotePermissions::fromServerString("DNVS");
+        fakeFolder.remoteModifier().find("abcdefabcdefabcdefabcdefabcdefabcd/abcdef abcdef abcdef a/abcdef abcdef/abcdef acbdef abcd/123abcdefabcdef1")->permissions = RemotePermissions::fromServerString("DNVS");
+        fakeFolder.remoteModifier().find("abcdefabcdefabcdefabcdefabcdefabcd/abcdef abcdef abcdef a/abcdef abcdef/abcdef acbdef abcd/123abcdefabcdef1/123123abcdef123 abcdef1")->permissions = RemotePermissions::fromServerString("DNVS");
+        fakeFolder.remoteModifier().find("abcdefabcdefabcdefabcdefabcdefabcd/abcdef abcdef abcdef a/abcdef abcdef/abcdef acbdef abcd/123abcdefabcdef1/123123abcdef123 abcdef1/12abcabc")->permissions = RemotePermissions::fromServerString("DNVS");
+        fakeFolder.remoteModifier().find("abcdefabcdefabcdefabcdefabcdefabcd/abcdef abcdef abcdef a/abcdef abcdef/abcdef acbdef abcd/123abcdefabcdef1/123123abcdef123 abcdef1/12abcabc/12abcabd")->permissions = RemotePermissions::fromServerString("DNVS");
+        fakeFolder.remoteModifier().find("abcdefabcdefabcdefabcdefabcdefabcd/abcdef abcdef abcdef a/abcdef abcdef/abcdef acbdef abcd/123abcdefabcdef1/123123abcdef123 abcdef1/12abcabc/12abcabd/this is a long long long long long long long long long long long long long long long long l.docx - Sh.lnk")->permissions = RemotePermissions::fromServerString("S");
+
+        QVERIFY(fakeFolder.syncOnce());
     }
 };
 

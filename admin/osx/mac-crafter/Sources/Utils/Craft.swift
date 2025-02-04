@@ -1,5 +1,5 @@
 /*
- * Copyright (C) by Claudio Cambra <claudio.cambra@nextcloud.com>
+ * Copyright (C) 2024 by Claudio Cambra <claudio.cambra@nextcloud.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -12,22 +12,6 @@
  * for more details.
  */
 
-import QtQuick
-import QtQuick.Controls
-import QtQuick.Layouts
-
-import Style
-
-EnforcedPlainTextLabel {
-    property bool hovered: false
-    property bool bold: false
-
-    font.underline: true
-    font.bold: bold
-
-    horizontalAlignment: Text.AlignLeft
-    verticalAlignment: Text.AlignVCenter
-
-    elide: Text.ElideRight
+func archToCraftTarget(_ arch: String) -> String {
+    return arch == "arm64" ? "macos-clang-arm64" : "macos-64-clang"
 }
-

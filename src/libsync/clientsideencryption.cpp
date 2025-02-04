@@ -224,31 +224,77 @@ QByteArray generateRandom(int size)
     return result;
 }
 
-QByteArray generatePassword(const QString& wordlist, const QByteArray& salt) {
-    qCInfo(lcCse()) << "Start encryption key generation!";
-
-    const int iterationCount = 1024;
-    const int keyStrength = 256;
-    const int keyLength = keyStrength/8;
+QByteArray deprecatedGeneratePassword(const QString& wordlist, const QByteArray& salt)
+{
+    const auto iterationCount = 1024;
+    const auto keyStrength = 256;
+    const auto keyLength = keyStrength / 8;
 
     QByteArray secretKey(keyLength, '\0');
 
-    int ret = PKCS5_PBKDF2_HMAC_SHA1(
-        wordlist.toLocal8Bit().constData(),     // const char *password,
-        wordlist.size(),                        // int password length,
-        (const unsigned char *)salt.constData(),// const unsigned char *salt,
-        salt.size(),                            // int saltlen,
-        iterationCount,                         // int iterations,
-        keyLength,                              // int keylen,
-        unsignedData(secretKey)                 // unsigned char *out
-        );
+    const auto ret = PKCS5_PBKDF2_HMAC(wordlist.toLocal8Bit().constData(),     // const char *password,
+                                       wordlist.size(),                        // int password length,
+                                       (const unsigned char *)salt.constData(),// const unsigned char *salt,
+                                       salt.size(),                            // int saltlen,
+                                       iterationCount,                         // int iterations,
+                                       EVP_sha1(),                             // deprecated digest algorithm
+                                       keyLength,                              // int keylen,
+                                       unsignedData(secretKey));               // unsigned char *out
 
     if (ret != 1) {
-        qCInfo(lcCse()) << "Failed to generate encryption key";
+        qCWarning(lcCse()) << "Failed to generate encryption key";
         // Error out?
     }
 
-    qCInfo(lcCse()) << "Encryption key generated!";
+    return secretKey;
+}
+
+QByteArray deprecatedSha1GeneratePassword(const QString& wordlist, const QByteArray& salt)
+{
+    const auto iterationCount = 600000;
+    const auto keyStrength = 256;
+    const auto keyLength = keyStrength / 8;
+
+    QByteArray secretKey(keyLength, '\0');
+
+    const auto ret = PKCS5_PBKDF2_HMAC(wordlist.toLocal8Bit().constData(),     // const char *password,
+                                       wordlist.size(),                        // int password length,
+                                       (const unsigned char *)salt.constData(),// const unsigned char *salt,
+                                       salt.size(),                            // int saltlen,
+                                       iterationCount,                         // int iterations,
+                                       EVP_sha1(),                             // deprecated digest algorithm
+                                       keyLength,                              // int keylen,
+                                       unsignedData(secretKey));               // unsigned char *out
+
+    if (ret != 1) {
+        qCWarning(lcCse()) << "Failed to generate encryption key";
+        // Error out?
+    }
+
+    return secretKey;
+}
+
+QByteArray generatePassword(const QString& wordlist, const QByteArray& salt)
+{
+    const auto iterationCount = 600000;
+    const auto keyStrength = 256;
+    const auto keyLength = keyStrength / 8;
+
+    QByteArray secretKey(keyLength, '\0');
+
+    const auto ret = PKCS5_PBKDF2_HMAC(wordlist.toLocal8Bit().constData(),     // const char *password,
+                                       wordlist.size(),                        // int password length,
+                                       (const unsigned char *)salt.constData(),// const unsigned char *salt,
+                                       salt.size(),                            // int saltlen,
+                                       iterationCount,                         // int iterations,
+                                       EVP_sha256(),                           // digest algorithm
+                                       keyLength,                              // int keylen,
+                                       unsignedData(secretKey));               // unsigned char *out
+
+    if (ret != 1) {
+        qCWarning(lcCse()) << "Failed to generate encryption key";
+        // Error out?
+    }
 
     return secretKey;
 }
@@ -1398,7 +1444,7 @@ std::pair<QByteArray, PKey> ClientSideEncryption::generateCSR(const AccountPtr &
         return {result, std::move(keyPair)};
     }
 
-    ret = X509_REQ_sign(x509_req, privateKey, EVP_sha1());    // return x509_req->signature->length
+    ret = X509_REQ_sign(x509_req, privateKey, EVP_sha256());    // return x509_req->signature->length
     if (ret <= 0){
         qCWarning(lcCse()) << "Error signing the csr with the private key";
         return {result, std::move(keyPair)};
@@ -1639,11 +1685,21 @@ void ClientSideEncryption::decryptPrivateKey(const AccountPtr &account, const QB
             // split off salt
             const auto salt = EncryptionHelper::extractPrivateKeySalt(key);
 
-            auto pass = EncryptionHelper::generatePassword(mnemonic, salt);
+            const auto deprecatedPassword = EncryptionHelper::deprecatedGeneratePassword(mnemonic, salt);
+            const auto deprecatedSha1Password = EncryptionHelper::deprecatedSha1GeneratePassword(mnemonic, salt);
+            const auto password = EncryptionHelper::generatePassword(mnemonic, salt);
 
-            QByteArray privateKey = EncryptionHelper::decryptPrivateKey(pass, key);
-            //_privateKey = QSslKey(privateKey, QSsl::Rsa, QSsl::Pem, QSsl::PrivateKey);
-            _privateKey = privateKey;
+            const auto privateKey = EncryptionHelper::decryptPrivateKey(password, key);
+            if (!privateKey.isEmpty()) {
+                _privateKey = privateKey;
+            } else {
+                const auto deprecatedSha1PrivateKey = EncryptionHelper::decryptPrivateKey(deprecatedSha1Password, key);
+                if (!deprecatedSha1PrivateKey.isEmpty()) {
+                    _privateKey = deprecatedSha1PrivateKey;
+                } else {
+                    _privateKey = EncryptionHelper::decryptPrivateKey(deprecatedPassword, key);
+                }
+            }
 
             if (!_privateKey.isNull() && checkPublicKeyValidity(account)) {
                 writePrivateKey(account);

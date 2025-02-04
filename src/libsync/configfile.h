@@ -93,6 +93,9 @@ public:
     [[nodiscard]] bool promptDeleteFiles() const;
     void setPromptDeleteFiles(bool promptDeleteFiles);
 
+    [[nodiscard]] int deleteFilesThreshold() const;
+    void setDeleteFilesThreshold(int thresholdValue);
+
     [[nodiscard]] bool crashReporter() const;
     void setCrashReporter(bool enabled);
 
@@ -163,6 +166,9 @@ public:
 
     [[nodiscard]] bool optionalServerNotifications() const;
     void setOptionalServerNotifications(bool show);
+
+    [[nodiscard]] bool showChatNotifications() const;
+    void setShowChatNotifications(bool show);
 
     [[nodiscard]] bool showCallNotifications() const;
     void setShowCallNotifications(bool show);

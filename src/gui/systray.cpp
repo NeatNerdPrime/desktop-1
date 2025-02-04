@@ -70,6 +70,7 @@ void Systray::setTrayEngine(QQmlApplicationEngine *trayEngine)
 
     _trayEngine->setNetworkAccessManagerFactory(&_accessManagerFactory);
 
+    _trayEngine->addImportPath(QCoreApplication::applicationDirPath() + "/qml");
     _trayEngine->addImportPath("qrc:/qml/theme");
     _trayEngine->addImageProvider("avatars", new ImageProvider);
     _trayEngine->addImageProvider(QLatin1String("svgimage-custom-color"), new OCC::Ui::SvgImageProvider);
@@ -119,7 +120,7 @@ void Systray::create()
             _trayEngine->rootContext()->setContextProperty("activityModel", &_fakeActivityModel);
         }
 
-        QQmlComponent trayWindowComponent(trayEngine(), QStringLiteral("qrc:/qml/src/gui/tray/Window.qml"));
+        QQmlComponent trayWindowComponent(trayEngine(), QStringLiteral("qrc:/qml/src/gui/tray/MainWindow.qml"));
 
         if(trayWindowComponent.isError()) {
             qCWarning(lcSystray) << trayWindowComponent.errorString();
@@ -300,20 +301,19 @@ void Systray::createResolveConflictsDialog(const OCC::ActivityList &allConflicts
 
     // This call dialog gets deallocated on close conditions
     // by a call from the QML side to the destroyDialog slot
-    auto dialog = QScopedPointer(conflictsDialog->createWithInitialProperties(initialProperties));
+    auto dialog = std::unique_ptr<QObject>(conflictsDialog->createWithInitialProperties(initialProperties));
     if (!dialog) {
         return;
     }
     dialog->setParent(QGuiApplication::instance());
 
-    auto dialogWindow = qobject_cast<QQuickWindow*>(dialog.data());
+    auto dialogWindow = qobject_cast<QQuickWindow*>(dialog.release());
     if (!dialogWindow) {
         return;
     }
     dialogWindow->show();
     dialogWindow->raise();
     dialogWindow->requestActivate();
-    dialog.take();
 }
 
 bool Systray::raiseDialogs()
@@ -588,11 +588,18 @@ void Systray::setSyncIsPaused(const bool syncIsPaused)
 
 void Systray::positionWindowAtTray(QQuickWindow *window) const
 {
-    if (!useNormalWindow()) {
-        window->setScreen(currentScreen());
-        const auto position = computeWindowPosition(window->width(), window->height());
-        window->setPosition(position);
+    if (useNormalWindow()) {
+        return;
     }
+
+    // need to store the current window size before moving the window to another screen,
+    // otherwise it is being incorrectly resized by the OS or Qt when switching to a screen
+    // with a different DPI setting
+    const auto initialSize = window->size();
+    const auto position = computeWindowPosition(initialSize.width(), initialSize.height());
+    window->setPosition(position);
+    window->setScreen(currentScreen());
+    window->resize(initialSize);
 }
 
 void Systray::positionWindowAtScreenCenter(QQuickWindow *window) const

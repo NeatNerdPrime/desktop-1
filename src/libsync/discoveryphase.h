@@ -86,6 +86,10 @@ struct RemoteInfo
     QString lockEditorApp;
     qint64 lockTime = 0;
     qint64 lockTimeout = 0;
+    QString lockToken;
+
+    bool isLivePhoto = false;
+    QString livePhotoFile;
 };
 
 struct LocalInfo
@@ -102,6 +106,7 @@ struct LocalInfo
     bool isVirtualFile = false;
     bool isSymLink = false;
     bool isMetadataMissing = false;
+    bool isPermissionsInvalid = false;
     [[nodiscard]] bool isValid() const { return !name.isNull(); }
 };
 

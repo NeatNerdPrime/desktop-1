@@ -27,7 +27,7 @@ TextField {
     readonly property alias submitButton: submitButton
     property bool validInput: true
 
-    implicitHeight: Style.talkReplyTextFieldPreferredHeight
+    implicitHeight: Math.max(Style.talkReplyTextFieldPreferredHeight, contentHeight)
 
     rightPadding: submitButton.width
 
@@ -52,5 +52,7 @@ TextField {
 
         onClicked: root.accepted()
     }
+
+    verticalAlignment: Qt.AlignVCenter
 }
 

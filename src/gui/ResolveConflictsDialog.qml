@@ -30,6 +30,9 @@ ApplicationWindow {
     flags: Qt.Window | Qt.Dialog
     visible: true
 
+    LayoutMirroring.enabled: Application.layoutDirection === Qt.RightToLeft
+    LayoutMirroring.childrenInherit: true
+
     width: Style.minimumWidthResolveConflictsDialog
     height: Style.minimumHeightResolveConflictsDialog
     minimumWidth: Style.minimumWidthResolveConflictsDialog
@@ -167,7 +170,7 @@ ApplicationWindow {
     }
 
     Rectangle {
-        color: Style.backgroundColor
+        color: palette.base
         anchors.fill: parent
         z: 1
     }

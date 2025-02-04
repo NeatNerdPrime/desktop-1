@@ -457,8 +457,8 @@ void PropagateDownloadFile::start()
 
     SyncJournalFileRecord parentRec;
     if (!propagator()->_journal->getFileRecord(parentPath, &parentRec)) {
-        qCWarning(lcPropagateDownload) << "could not get file from local DB" << parentPath;
-        done(SyncFileItem::NormalError, tr("could not get file %1 from local DB").arg(parentPath), ErrorCategory::GenericError);
+        qCWarning(lcPropagateDownload) << "Could not get file from local DB" << parentPath;
+        done(SyncFileItem::NormalError, tr("Could not get file %1 from local DB").arg(parentPath), ErrorCategory::GenericError);
         return;
     }
 
@@ -498,6 +498,13 @@ void PropagateDownloadFile::startAfterIsEncryptedIsChecked()
         }
 
         qCDebug(lcPropagateDownload) << "dehydrating file" << _item->_file;
+        if (FileSystem::isLnkFile(fsPath)) {
+            const auto convertResult = vfs->convertToPlaceholder(fsPath, *_item);
+            if (!convertResult) {
+                qCCritical(lcPropagateDownload()) << "error when converting a shortcut file to placeholder" << convertResult.error();
+            }
+        }
+
         auto r = vfs->dehydratePlaceholder(*_item);
         if (!r) {
             done(SyncFileItem::NormalError, r.error(), ErrorCategory::GenericError);
@@ -682,6 +689,14 @@ void PropagateDownloadFile::startDownload()
     catch (const std::filesystem::filesystem_error &e)
     {
         qCWarning(lcPropagateDownload) << "exception when checking parent folder access rights" << e.what() << e.path1().c_str() << e.path2().c_str();
+    }
+    catch (const std::system_error &e)
+    {
+        qCWarning(lcPropagateDownload) << "exception when checking parent folder access rights" << e.what();
+    }
+    catch (...)
+    {
+        qCWarning(lcPropagateDownload) << "exception when checking parent folder access rights";
     }
 
     if (FileSystem::isFolderReadOnly(_parentPath)) {
@@ -1093,7 +1108,7 @@ namespace { // Anonymous namespace for the recall feature
         int chownErr = chown(fileName.toLocal8Bit().constData(), -1, fi.groupId());
         if (chownErr) {
             // TODO: Consider further error handling!
-            qCWarning(lcPropagateDownload) << QString("preserveGroupOwnership: chown error %1: setting group %2 failed on file %3").arg(chownErr).arg(fi.groupId()).arg(fileName);
+            qCWarning(lcPropagateDownload) << QStringLiteral("preserveGroupOwnership: chown error %1: setting group %2 failed on file %3").arg(chownErr).arg(fi.groupId()).arg(fileName);
         }
 #else
         Q_UNUSED(fileName);
@@ -1205,10 +1220,24 @@ void PropagateDownloadFile::downloadFinished()
         // Preserve the existing file permissions.
         const auto existingFile = QFileInfo{filename};
 #ifdef Q_OS_WIN
-        const auto existingPermissions = FileSystem::filePermissionsWin(filename);
-        const auto tmpFilePermissions = FileSystem::filePermissionsWin(_tmpFile.fileName());
-        if (existingPermissions != tmpFilePermissions) {
-            FileSystem::setFilePermissionsWin(_tmpFile.fileName(), existingPermissions);
+        try {
+            const auto existingPermissions = FileSystem::filePermissionsWin(filename);
+            const auto tmpFilePermissions = FileSystem::filePermissionsWin(_tmpFile.fileName());
+            if (existingPermissions != tmpFilePermissions) {
+                FileSystem::setFilePermissionsWin(_tmpFile.fileName(), existingPermissions);
+            }
+        }
+        catch (const std::filesystem::filesystem_error &e)
+        {
+            qCWarning(lcPropagateDownload()) << _item->_instruction << _item->_file << e.what();
+        }
+        catch (const std::system_error &e)
+        {
+            qCWarning(lcPropagateDownload()) << _item->_instruction << _item->_file << e.what();
+        }
+        catch (...)
+        {
+            qCWarning(lcPropagateDownload()) << _item->_instruction << _item->_file;
         }
 #else
         if (existingFile.permissions() != _tmpFile.permissions()) {
@@ -1284,7 +1313,7 @@ void PropagateDownloadFile::downloadFinished()
     emit propagator()->touchedFile(filename);
     // The fileChanged() check is done above to generate better error messages.
     if (!FileSystem::uncheckedRenameReplace(_tmpFile.fileName(), filename, &error)) {
-        qCWarning(lcPropagateDownload) << QString("Rename failed: %1 => %2").arg(_tmpFile.fileName()).arg(filename);
+        qCWarning(lcPropagateDownload) << QStringLiteral("Rename failed: %1 => %2").arg(_tmpFile.fileName()).arg(filename);
         // If the file is locked, we want to retry this sync when it
         // becomes available again, otherwise try again directly
         if (FileSystem::isFileLocked(filename)) {
