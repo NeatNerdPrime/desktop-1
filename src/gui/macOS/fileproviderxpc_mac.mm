@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 
+#include "common/utility.h"
 #include "fileproviderxpc.h"
 
 #include <QLoggingCategory>
@@ -60,12 +61,14 @@ void FileProviderXPC::authenticateExtension(const QString &extensionAccountId) c
     NSString *const userId = account->davUser().toNSString();
     NSString *const serverUrl = account->url().toString().toNSString();
     NSString *const password = credentials->password().toNSString();
+    NSString *const userAgent = QString::fromUtf8(Utility::userAgentString()).toNSString();
 
     const auto clientCommService = (NSObject<ClientCommunicationProtocol> *)_clientCommServices.value(extensionAccountId);
     [clientCommService configureAccountWithUser:user
                                          userId:userId
                                       serverUrl:serverUrl
-                                       password:password];
+                                       password:password
+                                      userAgent:userAgent];
 }
 
 void FileProviderXPC::unauthenticateExtension(const QString &extensionAccountId) const
@@ -207,8 +210,8 @@ std::optional<std::pair<bool, bool>> FileProviderXPC::fastEnumerationStateForExt
         return std::nullopt;
     }
 
-    __block BOOL receivedFastEnumerationEnabled; // What is the value of the setting being used by the extension?
-    __block BOOL receivedFastEnumerationSet; // Has the setting been set by the user?
+    __block BOOL receivedFastEnumerationEnabled = YES; // What is the value of the setting being used by the extension?
+    __block BOOL receivedFastEnumerationSet = NO; // Has the setting been set by the user?
     __block BOOL receivedResponse = NO;
     dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
     [service getFastEnumerationStateWithCompletionHandler:^(BOOL enabled, BOOL set) {

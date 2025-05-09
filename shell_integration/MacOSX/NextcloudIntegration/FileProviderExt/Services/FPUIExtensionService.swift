@@ -2,7 +2,8 @@
 //  FPUIExtensionCommunicationProtocol.swift
 //  FileProviderExt
 //
-//  Created by Claudio Cambra on 21/2/24.
+//  SPDX-FileCopyrightText: 2024 Nextcloud GmbH and Nextcloud contributors
+//  SPDX-License-Identifier: GPL-2.0-or-later
 //
 
 import FileProvider
@@ -13,6 +14,7 @@ let fpUiExtensionServiceName = NSFileProviderServiceName(
 )
 
 @objc protocol FPUIExtensionService {
+    func userAgent() async -> NSString?
     func credentials() async -> NSDictionary
     func itemServerPath(identifier: NSFileProviderItemIdentifier) async -> NSString?
 }
