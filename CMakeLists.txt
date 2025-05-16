@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2018 Nextcloud GmbH and Nextcloud contributors
+# SPDX-FileCopyrightText: 2011 ownCloud GmbH
+# SPDX-License-Identifier: GPL-2.0-or-later
 cmake_minimum_required(VERSION 3.16)
 cmake_policy(SET CMP0071 NEW) # Enable use of QtQuick compiler/generated code
 
@@ -230,8 +233,6 @@ if(BUILD_CLIENT)
     if(UNIX AND NOT APPLE)
         find_package(Inotify REQUIRED)
     endif()
-    find_package(Sphinx)
-    find_package(PdfLatex)
     find_package(OpenSSL 1.1 REQUIRED )
     find_package(PkgConfig REQUIRED)
     pkg_check_modules(OPENSC-LIBP11 libp11 REQUIRED IMPORTED_TARGET)
@@ -327,9 +328,6 @@ set(TRANSLATIONS ${TRANS_FILES})
 if(BUILD_CLIENT)
     add_subdirectory(src)
     if(NOT BUILD_LIBRARIES_ONLY)
-        add_subdirectory(man)
-        add_subdirectory(doc)
-        add_subdirectory(doc/dev)
         if(IS_DIRECTORY ${CMAKE_SOURCE_DIR}/admin)
             add_subdirectory(admin)
         endif(IS_DIRECTORY ${CMAKE_SOURCE_DIR}/admin)

@@ -1,8 +1,11 @@
 /*
- *    This software is in the public domain, furnished "as is", without technical
- *    support, and with no warranty, express or implied, as to its usefulness for
- *    any purpose.
+ * SPDX-FileCopyrightText: 2018 Nextcloud GmbH and Nextcloud contributors
+ * SPDX-FileCopyrightText: 2016 ownCloud GmbH
+ * SPDX-License-Identifier: CC0-1.0
  *
+ * This software is in the public domain, furnished "as is", without technical
+ * support, and with no warranty, express or implied, as to its usefulness for
+ * any purpose.
  */
 #pragma once
 
@@ -191,6 +194,12 @@ public:
     quint64 lockTimeout = 0;
     bool isEncrypted = false;
     bool isLivePhoto = false;
+
+    struct FileInfoQuota {
+        int64_t bytesUsed = 0;
+        int64_t bytesAvailable = 5000000000;
+    };
+    FileInfoQuota quota;
 
     // Sorted by name to be able to compare trees
     QMap<QString, FileInfo> children;

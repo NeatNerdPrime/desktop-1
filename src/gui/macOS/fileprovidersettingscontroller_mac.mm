@@ -363,6 +363,14 @@ void FileProviderSettingsController::setVfsEnabledForAccount(const QString &user
     const auto enabledAccountsAction = d->setVfsEnabledForAccount(userIdAtHost, setEnabled);
     if (enabledAccountsAction == MacImplementation::VfsAccountsAction::VfsAccountsEnabledChanged) {
         emit vfsEnabledAccountsChanged();
+
+        if (setEnabled) {
+            QMessageBox::information(nullptr,
+                                     tr("macOS virtual files enabled"),
+                                     tr("Virtual files have been enabled for this account.\n"
+                                        "Files are accessible in Finder via an entry under the \"Locations\" section.\n"
+                                        "Please note that on macOS, virtual and classic sync folders are separate.\n"));
+        }
     }
 }
 
@@ -402,6 +410,44 @@ void FileProviderSettingsController::setFastEnumerationEnabledForAccount(const Q
     xpc->setFastEnumerationEnabledForExtension(userIdAtHost, setEnabled);
     emit fastEnumerationEnabledForAccountChanged(userIdAtHost);
     emit fastEnumerationSetForAccountChanged(userIdAtHost);
+}
+
+bool FileProviderSettingsController::trashDeletionEnabledForAccount(const QString &userIdAtHost) const
+{
+    const auto xpc = FileProvider::instance()->xpc();
+    if (!xpc) {
+        return true;
+    }
+    if (const auto trashDeletionState = xpc->trashDeletionEnabledStateForExtension(userIdAtHost)) {
+        return trashDeletionState->first;
+    }
+    return true;
+}
+
+bool FileProviderSettingsController::trashDeletionSetForAccount(const QString &userIdAtHost) const
+{
+    const auto xpc = FileProvider::instance()->xpc();
+    if (!xpc) {
+        return false;
+    }
+    if (const auto state = xpc->trashDeletionEnabledStateForExtension(userIdAtHost)) {
+        return state->second;
+    }
+    return false;
+}
+
+void FileProviderSettingsController::setTrashDeletionEnabledForAccount(const QString &userIdAtHost, const bool setEnabled)
+{
+    const auto xpc = FileProvider::instance()->xpc();
+    if (!xpc) {
+        // Reset state of UI elements
+        emit trashDeletionEnabledForAccountChanged(userIdAtHost);
+        emit trashDeletionSetForAccountChanged(userIdAtHost);
+        return;
+    }
+    xpc->setTrashDeletionEnabledForExtension(userIdAtHost, setEnabled);
+    emit trashDeletionEnabledForAccountChanged(userIdAtHost);
+    emit trashDeletionSetForAccountChanged(userIdAtHost);
 }
 
 unsigned long long FileProviderSettingsController::localStorageUsageForAccount(const QString &userIdAtHost) const

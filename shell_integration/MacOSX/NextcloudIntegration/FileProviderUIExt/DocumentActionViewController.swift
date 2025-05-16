@@ -2,7 +2,8 @@
 //  DocumentActionViewController.swift
 //  FileProviderUIExt
 //
-//  Created by Claudio Cambra on 20/2/24.
+//  SPDX-FileCopyrightText: 2024 Nextcloud GmbH and Nextcloud contributors
+//  SPDX-License-Identifier: GPL-2.0-or-later
 //
 
 import FileProviderUI
@@ -45,7 +46,7 @@ class DocumentActionViewController: FPUIActionExtensionViewController {
             prepare(childViewController: LockViewController(itemIdentifiers, locking: false))
         case "com.nextcloud.desktopclient.FileProviderUIExt.EvictAction":
             evict(itemsWithIdentifiers: itemIdentifiers, inDomain: domain);
-            dismiss(self);
+            extensionContext.completeRequest();
         default:
             return
         }
