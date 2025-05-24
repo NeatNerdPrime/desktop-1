@@ -31,6 +31,8 @@ public:
     // Returns enabled and set state of fast enumeration for the given extension
     [[nodiscard]] std::optional<std::pair<bool, bool>> fastEnumerationStateForExtension(const QString &extensionAccountId) const;
 
+    [[nodiscard]] std::optional<std::pair<bool, bool>> trashDeletionEnabledStateForExtension(const QString &extensionAccountId) const;
+
 public slots:
     void connectToExtensions();
     void configureExtensions();
@@ -38,7 +40,9 @@ public slots:
     void unauthenticateExtension(const QString &extensionAccountId) const;
     void createDebugArchiveForExtension(const QString &extensionAccountId, const QString &filename);
 
+    void setIgnoreList() const;
     void setFastEnumerationEnabledForExtension(const QString &extensionAccountId, bool enabled) const;
+    void setTrashDeletionEnabledForExtension(const QString &extensionAccountId, bool enabled) const;
 
 private slots:
     void slotAccountStateChanged(AccountState::State state) const;

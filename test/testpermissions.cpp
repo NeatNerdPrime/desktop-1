@@ -97,9 +97,23 @@ private slots:
         QStandardPaths::setTestModeEnabled(true);
     }
 
+    void t7pl_data()
+    {
+        QTest::addColumn<bool>("moveToTrashEnabled");
+        QTest::newRow("move to trash") << true;
+        QTest::newRow("delete") << false;
+    }
+
     void t7pl()
     {
+        QFETCH(bool, moveToTrashEnabled);
+
         FakeFolder fakeFolder{ FileInfo() };
+
+        auto syncOptions = fakeFolder.syncEngine().syncOptions();
+        syncOptions._moveFilesToTrash = moveToTrashEnabled;
+        fakeFolder.syncEngine().setSyncOptions(syncOptions);
+
         QCOMPARE(fakeFolder.currentLocalState(), fakeFolder.currentRemoteState());
 
         // Some of this test depends on the order of discovery. With threading
@@ -215,7 +229,9 @@ private slots:
             fakeFolder.localModifier().appendByte(file);
         };
         editReadOnly("normalDirectory_PERM_CKDNV_/cannotBeModified_PERM_DVN_.data");
+#if !defined Q_OS_WINDOWS
         editReadOnly("readonlyDirectory_PERM_M_/cannotBeModified_PERM_DVN_.data");
+#endif
 
         //4. Edit other files
         //  (they should be uploaded)
@@ -235,6 +251,9 @@ private slots:
         //1.
         // File should be recovered
         QVERIFY(currentLocalState.find("normalDirectory_PERM_CKDNV_/cannotBeRemoved_PERM_WVN_.data"));
+#if !defined Q_OS_WINDOWS
+        QCOMPARE(currentLocalState.find("readonlyDirectory_PERM_M_/cannotBeModified_PERM_DVN_.data")->size, cannotBeModifiedSize);
+#endif
         QVERIFY(currentLocalState.find("readonlyDirectory_PERM_M_/cannotBeRemoved_PERM_WVN_.data"));
 
         //2.
@@ -245,21 +264,28 @@ private slots:
         //3.
         // File should be recovered
         QCOMPARE(currentLocalState.find("normalDirectory_PERM_CKDNV_/cannotBeModified_PERM_DVN_.data")->size, cannotBeModifiedSize);
-        QCOMPARE(currentLocalState.find("readonlyDirectory_PERM_M_/cannotBeModified_PERM_DVN_.data")->size, cannotBeModifiedSize);
         // and conflict created
         auto c1 = findConflict(currentLocalState, "normalDirectory_PERM_CKDNV_/cannotBeModified_PERM_DVN_.data");
         QVERIFY(c1);
         QCOMPARE(c1->size, cannotBeModifiedSize + 1);
+#if !defined Q_OS_WINDOWS
         auto c2 = findConflict(currentLocalState, "readonlyDirectory_PERM_M_/cannotBeModified_PERM_DVN_.data");
         QVERIFY(c2);
         QCOMPARE(c2->size, cannotBeModifiedSize + 1);
+#endif
         // remove the conflicts for the next state comparison
         fakeFolder.localModifier().remove(c1->path());
+#if !defined Q_OS_WINDOWS
         removeReadOnly(c2->path());
+#endif
 
         //4. File should be updated, that's tested by assertLocalAndRemoteDir
         QCOMPARE(currentLocalState.find("normalDirectory_PERM_CKDNV_/canBeModified_PERM_W_.data")->size, canBeModifiedSize + 1);
+#if defined Q_OS_WINDOWS
+        QCOMPARE(currentLocalState.find("readonlyDirectory_PERM_M_/canBeModified_PERM_W_.data")->size, canBeModifiedSize);
+#else
         QCOMPARE(currentLocalState.find("readonlyDirectory_PERM_M_/canBeModified_PERM_W_.data")->size, canBeModifiedSize + 1);
+#endif
 
         //5.
         // the file should be in the server and local
@@ -415,7 +441,11 @@ private slots:
             currentLocalState = fakeFolder.currentLocalState();
             count++;
         }
+#if defined Q_OS_WINDOWS
+        QCOMPARE(count, 0);
+#else
         QCOMPARE(count, 2);
+#endif
         QCOMPARE(fakeFolder.currentLocalState(), fakeFolder.currentRemoteState());
     }
 

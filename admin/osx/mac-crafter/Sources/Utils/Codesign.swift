@@ -46,9 +46,17 @@ func isExecutable(_ path: String) throws -> Bool {
 func codesign(identity: String, path: String, options: String = defaultCodesignOptions) throws {
     print("Code-signing \(path)...")
     let command = "codesign -s \"\(identity)\" \(options) \"\(path)\""
-    guard shell(command) == 0 else {
-        throw CodeSigningError.failedToCodeSign("Failed to code-sign \(path).")
+    for _ in 1...5 {
+        guard shell(command) == 0 else {
+            print("Code-signing failed, retrying ...")
+            continue
+        }
+
+        // code signing was successful
+        return
     }
+
+    throw CodeSigningError.failedToCodeSign("Failed to code-sign \(path).")
 }
 
 func recursivelyCodesign(
@@ -90,7 +98,9 @@ func saveCodesignEntitlements(target: String, path: String) throws {
 }
 
 func codesignClientAppBundle(
-    at clientAppDir: String, withCodeSignIdentity codeSignIdentity: String
+    at clientAppDir: String,
+    withCodeSignIdentity codeSignIdentity: String,
+    usingEntitlements entitlementsPath: String? = nil
 ) throws {
     print("Code-signing Nextcloud Desktop Client libraries, frameworks and plugins...")
 
@@ -180,5 +190,13 @@ func codesignClientAppBundle(
     let mainExecutableName = String(appName.dropLast(".app".count))
     let mainExecutablePath = "\(binariesDir)/\(mainExecutableName)"
     try recursivelyCodesign(path: binariesDir, identity: codeSignIdentity, skip: [mainExecutablePath])
-    try codesign(identity: codeSignIdentity, path: mainExecutablePath)
+
+    var mainExecutableCodesignOptions = defaultCodesignOptions
+    if let entitlementsPath {
+        mainExecutableCodesignOptions =
+            "--timestamp --force --verbose=4 --options runtime --entitlements \"\(entitlementsPath)\""
+    }
+    try codesign(
+        identity: codeSignIdentity, path: mainExecutablePath, options: mainExecutableCodesignOptions
+    )
 }

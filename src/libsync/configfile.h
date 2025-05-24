@@ -90,9 +90,6 @@ public:
     [[nodiscard]] int deleteFilesThreshold() const;
     void setDeleteFilesThreshold(int thresholdValue);
 
-    [[nodiscard]] bool crashReporter() const;
-    void setCrashReporter(bool enabled);
-
     [[nodiscard]] bool automaticLogDir() const;
     void setAutomaticLogDir(bool enabled);
 
@@ -255,6 +252,11 @@ public:
     static constexpr char showCallNotificationsC[] = "showCallNotifications";
     static constexpr char showChatNotificationsC[] = "showChatNotifications";
     static constexpr char showInExplorerNavigationPaneC[] = "showInExplorerNavigationPane";
+
+    static constexpr char useUploadLimitC[] = "BWLimit/useUploadLimit";
+    static constexpr char useDownloadLimitC[] = "BWLimit/useDownloadLimit";
+    static constexpr char uploadLimitC[] = "BWLimit/uploadLimit";
+    static constexpr char downloadLimitC[] = "BWLimit/downloadLimit";
 
 protected:
     [[nodiscard]] QVariant getPolicySetting(const QString &policy, const QVariant &defaultValue = QVariant()) const;
